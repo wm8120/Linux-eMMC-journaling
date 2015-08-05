@@ -57,6 +57,10 @@ struct journal_head {
 	 */
 	char *b_committed_data;
 
+        /* wm add */
+        unsigned b_new_create; 
+        char *snapshot;
+
 	/*
 	 * Pointer to the compound transaction which owns this buffer's
 	 * metadata: either the running transaction or the committing

@@ -404,6 +404,34 @@ repeat:
 		need_copy_out = 1;
 		do_escape = 1;
 	}
+
+        //wm add
+        J_ASSERT_JH(jh_in, jh_in->b_new_create || jh_in->snapshot != NULL);
+        if (jh_in->b_new_create) {
+            printk (KERN_ALERT "myjbd2: new buffer\n");
+        }
+        else {
+            struct page* old_page;
+            unsigned int old_offset;
+            char* old_data;
+            unsigned int count=0;
+            char* old_start;
+            char* new_start = mapped_data + new_offset;
+            size_t i=0;
+
+            old_page = virt_to_page(jh_in->snapshot);
+            old_offset = offset_in_page(jh_in->snapshot);
+            old_data = kmap_atomic(old_page);
+            old_start = old_data + old_offset;
+            for (i=0; i<jh2bh(jh_in)->b_size; i++) {
+                if ( *((__u8*)(old_start + i)) == *((__u8*)(new_start + i)) ) continue;
+                count++;
+            }
+            printk (KERN_ALERT "myjbd2: changed data %u of %zu\n", count, jh2bh(jh_in)->b_size);
+
+            kunmap_atomic(old_data);
+        }
+        //end
 	kunmap_atomic(mapped_data);
 
 	/*

@@ -638,6 +638,9 @@ do_get_write_access(handle_t *handle, struct journal_head *jh,
 	journal_t *journal;
 	int error;
 	char *frozen_buffer = NULL;
+        // wm add
+        char *snapshot = NULL;
+        //end 
 	int need_copy = 0;
 	unsigned long start_lock, time_lock;
 
@@ -829,36 +832,69 @@ repeat:
 		spin_unlock(&journal->j_list_lock);
 	}
 
+        // wm add
+        if (jh->snapshot == NULL) {
+	    jbd_unlock_bh_state(bh);
+	    JBUFFER_TRACE(jh, "allocate memory for buffer snapshot");
+            snapshot = jbd2_alloc(jh2bh(jh)->b_size, GFP_NOFS);
+            jbd_lock_bh_state(bh);
+            if (!snapshot) {
+                printk(KERN_EMERG
+                        "%s: OOM for jh snapshot\n",
+                        __func__);
+                JBUFFER_TRACE(jh, "oom!");
+                error = -ENOMEM;
+                goto done;
+            }
+            else {
+                //copy buffer content
+                struct page *page;
+                int offset;
+                char *source;
+
+                jh->snapshot = snapshot;
+                jh->b_new_create = 0;
+                snapshot = NULL;
+
+                page = jh2bh(jh)->b_page;
+                offset = offset_in_page(jh2bh(jh)->b_data);
+                source = kmap_atomic(page);
+                memcpy(jh->snapshot, source+offset, jh2bh(jh)->b_size);
+                kunmap_atomic(source);
+            }
+        }
+
 done:
-	if (need_copy) {
-		struct page *page;
-		int offset;
-		char *source;
+        if (need_copy) {
+            struct page *page;
+            int offset;
+            char *source;
 
-		J_EXPECT_JH(jh, buffer_uptodate(jh2bh(jh)),
-			    "Possible IO failure.\n");
-		page = jh2bh(jh)->b_page;
-		offset = offset_in_page(jh2bh(jh)->b_data);
-		source = kmap_atomic(page);
-		/* Fire data frozen trigger just before we copy the data */
-		jbd2_buffer_frozen_trigger(jh, source + offset,
-					   jh->b_triggers);
-		memcpy(jh->b_frozen_data, source+offset, jh2bh(jh)->b_size);
-		kunmap_atomic(source);
+            J_EXPECT_JH(jh, buffer_uptodate(jh2bh(jh)),
+                    "Possible IO failure.\n");
+            page = jh2bh(jh)->b_page;
+            offset = offset_in_page(jh2bh(jh)->b_data);
+            source = kmap_atomic(page);
+            /* Fire data frozen trigger just before we copy the data */
+            jbd2_buffer_frozen_trigger(jh, source + offset,
+                    jh->b_triggers);
+            memcpy(jh->b_frozen_data, source+offset, jh2bh(jh)->b_size);
+            kunmap_atomic(source);
 
-		/*
-		 * Now that the frozen data is saved off, we need to store
-		 * any matching triggers.
-		 */
-		jh->b_frozen_triggers = jh->b_triggers;
-	}
-	jbd_unlock_bh_state(bh);
+            /*
+             * Now that the frozen data is saved off, we need to store
+             * any matching triggers.
+             */
+            jh->b_frozen_triggers = jh->b_triggers;
+        }
+        jbd_unlock_bh_state(bh);
 
-	/*
+        /*
 	 * If we are about to journal a buffer, then any revoke pending on it is
 	 * no longer valid
 	 */
 	jbd2_journal_cancel_revoke(handle, jh);
+
 
 out:
 	if (unlikely(frozen_buffer))	/* It's usually NULL */
@@ -965,6 +1001,10 @@ int jbd2_journal_get_create_access(handle_t *handle, struct buffer_head *bh)
 		JBUFFER_TRACE(jh, "set next transaction");
 		jh->b_next_transaction = transaction;
 	}
+
+        // wm add
+        jh->b_new_create = 1;
+        //end
 	spin_unlock(&journal->j_list_lock);
 	jbd_unlock_bh_state(bh);
 
