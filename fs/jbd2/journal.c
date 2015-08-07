@@ -426,6 +426,7 @@ repeat:
             for (i=0; i<jh2bh(jh_in)->b_size; i++) {
                 if ( *((__u8*)(old_start + i)) == *((__u8*)(new_start + i)) ) continue;
                 count++;
+                *((__u8*)(old_start + i)) = *((__u8*)(new_start + i));
             }
             printk (KERN_ALERT "myjbd2: changed data %u of %zu\n", count, jh2bh(jh_in)->b_size);
 
@@ -2491,6 +2492,12 @@ static void __journal_remove_journal_head(struct buffer_head *bh)
 		printk(KERN_WARNING "%s: freeing b_committed_data\n", __func__);
 		jbd2_free(jh->b_committed_data, bh->b_size);
 	}
+        //wm add
+        if (jh->snapshot) {
+	    printk(KERN_WARNING "%s: freeing snapshot\n", __func__);
+            jbd2_free (jh->snapshot, bh->b_size);
+        }
+        //end
 	bh->b_private = NULL;
 	jh->b_bh = NULL;	/* debug, really */
 	clear_buffer_jbd(bh);

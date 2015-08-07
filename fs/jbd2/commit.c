@@ -366,6 +366,11 @@ static void jbd2_block_tag_csum_set(journal_t *j, journal_block_tag_t *tag,
  */
 void jbd2_journal_commit_transaction(journal_t *journal)
 {
+        //wm add debug
+    struct buffer_head* mybh;
+    struct buffer_head* mybh2;
+    struct journal_head* mydescriptor;
+        //end
 	struct transaction_stats_s stats;
 	transaction_t *commit_transaction;
 	struct journal_head *jh, *new_jh, *descriptor;
@@ -740,6 +745,67 @@ start_journal_io:
 				bh->b_end_io = journal_end_buffer_io_sync;
 				submit_bh(WRITE_SYNC, bh);
 			}
+
+                        //wm add debug
+                        if (1) {
+                            char* tagp = NULL;
+                            int tag_flag = 0;
+                            unsigned long long blocknr;
+                            int err;
+                            journal_block_tag_t* tag;
+                            mydescriptor = jbd2_journal_get_descriptor_buffer(journal);
+                            if (!mydescriptor) {
+                                printk(KERN_ALERT "allocate descriptor for JBD2_TEST_BLOCK failed!\n");
+                                jbd2_journal_abort(journal, -EIO);
+                                continue; 
+                            }
+                            mybh = jh2bh(mydescriptor);
+                            header = (journal_header_t *)&mybh->b_data[0];
+                            header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
+                            header->h_blocktype = cpu_to_be32(JBD2_TEST_BLOCK);
+                            header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
+
+                            tag_flag |= JBD2_FLAG_DEBUG_SKIP;
+
+                            tagp = &mybh->b_data[sizeof(journal_header_t)];
+                            tag = (journal_block_tag_t *) tagp;
+                            write_tag_block(tag_bytes, tag, 0);
+                            tag->t_flags = cpu_to_be16(tag_flag);
+
+                            tagp += tag_bytes;
+
+                            memcpy (tagp, journal->j_uuid, 16);
+                            tagp += 16;
+
+                            lock_buffer(mybh);
+                            clear_buffer_dirty(mybh);
+                            set_buffer_uptodate(mybh);
+                            mybh->b_end_io = journal_end_buffer_io_sync;
+                            submit_bh(WRITE_SYNC, mybh);
+
+                            //data block
+                            err = jbd2_journal_next_log_block(journal, &blocknr);
+                            if (err) {
+                                printk(KERN_ALERT "myjbd2: jbd2_journal_next_log_block failed!\n");
+                                jbd2_journal_abort(journal, err);
+                                continue;
+                            }
+                            mybh2 = __getblk(journal->j_dev, blocknr, journal->j_blocksize);
+                            if (mybh2 == NULL) {
+                                printk(KERN_ALERT "myjbd2: __getblk failed!\n");
+                                jbd2_journal_abort(journal, err);
+                                continue;
+                            }
+                            *((u8*) mybh2->b_data) = 0b00000000;
+                            *((u8*) mybh2->b_data+sizeof(u8)) = 0b11111111;
+
+                            lock_buffer(mybh2);
+                            clear_buffer_dirty(mybh2);
+                            set_buffer_uptodate(mybh2);
+                            mybh2->b_end_io = journal_end_buffer_io_sync;
+                            submit_bh(WRITE_SYNC, mybh2);
+                        }
+                        //end
 			cond_resched();
 			stats.run.rs_blocks_logged += bufs;
 
@@ -906,6 +972,20 @@ wait_for_iobuf:
 		__brelse(bh);		/* One for getblk */
 		/* AKPM: bforget here */
 	}
+
+        //wm add debug
+        while(buffer_locked(mybh)) {
+            wait_on_buffer(mybh);
+        }
+        __brelse(mybh);
+
+        while(buffer_locked(mybh2)) {
+            wait_on_buffer(mybh2);
+        }
+        __brelse(mybh2);
+
+        jbd2_journal_put_journal_head(mydescriptor);
+        //end
 
 	if (err)
 		jbd2_journal_abort(journal, err);

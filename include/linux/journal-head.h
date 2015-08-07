@@ -60,6 +60,9 @@ struct journal_head {
         /* wm add */
         unsigned b_new_create; 
         char *snapshot;
+        
+        unsigned b_log_all; //dirty so many places, don't optimize
+        //end
 
 	/*
 	 * Pointer to the compound transaction which owns this buffer's

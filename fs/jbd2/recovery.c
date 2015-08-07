@@ -268,6 +268,9 @@ int jbd2_journal_recover(journal_t *journal)
 		return 0;
 	}
 
+        //wm add debug
+        printk(KERN_ALERT "enter journal recover\n");
+        //end
 	err = do_one_pass(journal, &info, PASS_SCAN);
 	if (!err)
 		err = do_one_pass(journal, &info, PASS_REVOKE);
@@ -511,6 +514,40 @@ static int do_one_pass(journal_t *journal,
 		 * to do with it?  That depends on the pass... */
 
 		switch(blocktype) {
+                //wm add debug
+                case JBD2_TEST_BLOCK:
+                    if (pass != PASS_REPLAY) {
+                        next_log_block += 1; //only one block follows test descriptor
+			wrap(journal, next_log_block);
+			put_bh(bh);
+			continue;
+                    } else {
+                        unsigned long io_block;
+                        printk(KERN_ALERT "myjdb2: sequence: tid = %u\n", sequence);
+
+                        tagp = &bh->b_data[sizeof(journal_header_t)];
+                        tag = (journal_block_tag_t *) tagp;
+                        flags = be16_to_cpu(tag->t_flags);
+                        printk(KERN_ALERT "block number is %llu\n", read_tag_block(tag_bytes, tag));
+                        if (flags & JBD2_FLAG_DEBUG_SKIP) {
+                            printk(KERN_ALERT "It's a JBD2_FLAG_DEBUG_SKIP\n");
+                        }
+                        io_block = next_log_block++;
+                        wrap(journal, next_log_block);
+                        err = jread(&obh, journal, io_block);
+                        if (err) {
+                            success = err;
+                            printk(KERN_ALERT "myjbd2: IO error %d recovering "
+                                    "block %ld in log\n",
+                                    err, io_block);
+                        }
+                        printk(KERN_ALERT "myjbd2: first 2 bytes are %2ph\n", (void *)(obh->b_data));
+                    }
+                    
+                    brelse(bh);
+                    brelse(obh);
+                    continue;
+
 		case JBD2_DESCRIPTOR_BLOCK:
 			/* Verify checksum first */
 			if (JBD2_HAS_INCOMPAT_FEATURE(journal,
@@ -559,6 +596,14 @@ static int do_one_pass(journal_t *journal,
 
 				tag = (journal_block_tag_t *) tagp;
 				flags = be16_to_cpu(tag->t_flags);
+
+                                // wm add debug
+                                if (flags & JBD2_FLAG_DEBUG_SKIP) {
+                                    printk(KERN_ALERT "myjbd2: skip this buffer, "
+                                            "the blocknr is %llu\n", read_tag_block(tag_bytes, tag));
+                                    goto skip_write;
+                                }
+                                //end
 
 				io_block = next_log_block++;
 				wrap(journal, next_log_block);

@@ -130,6 +130,8 @@ typedef struct journal_s	journal_t;	/* Journal control structure */
 #define JBD2_SUPERBLOCK_V1	3
 #define JBD2_SUPERBLOCK_V2	4
 #define JBD2_REVOKE_BLOCK	5
+// wm add debug
+#define JBD2_TEST_BLOCK         6
 
 /*
  * Standard header for all descriptor blocks:
@@ -220,6 +222,8 @@ struct jbd2_journal_revoke_tail {
 #define JBD2_FLAG_SAME_UUID	2	/* block has same uuid as previous */
 #define JBD2_FLAG_DELETED	4	/* block deleted by this transaction */
 #define JBD2_FLAG_LAST_TAG	8	/* last tag in this descriptor block */
+// wm add debug
+#define JBD2_FLAG_DEBUG_SKIP    16
 
 
 /*
