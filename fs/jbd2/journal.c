@@ -427,7 +427,7 @@ repeat:
             char* merge_data;
 
             //wm add debug
-            jbd2_bitmap_set(jh_in->b_bitmap, 3, 8);
+            jbd2_bitmap_set(jh_in->b_bitmap, 3, 6);
             jbd2_bitmap_set(jh_in->b_bitmap, 10, 1);
 
             if (transaction->t_tmpio_list == NULL /* || data_left is not big enough*/) {
@@ -447,31 +447,33 @@ repeat:
                     new_page = virt_to_page(jh_in->b_frozen_data);
                     new_offset = offset_in_page(jh_in->b_frozen_data);
                 }
-            my_page = virt_to_page(merge_data);
-            my_offset = offset_in_page(merge_data);
+                my_page = virt_to_page(merge_data);
+                my_offset = offset_in_page(merge_data);
 
-            mapped_data = kmap_atomic(my_page);
-            my_start = mapped_data + my_offset;
-            memcpy(my_start, jh_in->b_bitmap, jh_in->b_bitmap_size);
-            my_start += jh_in->b_bitmap_size;
-            *((u8*) my_start) = 0b01010101;
-            *((u8*) my_start+sizeof(u8)) = 0b11111111;
-            kunmap_atomic(mapped_data);
+                mapped_data = kmap_atomic(my_page);
+                my_start = mapped_data + my_offset;
+                memcpy(my_start, jh_in->b_bitmap, jh_in->b_bitmap_size);
+                my_start += jh_in->b_bitmap_size;
+                *((u8*) my_start) = 0b01010101;
+                *((u8*) my_start+sizeof(u8)) = 0b11111111;
+                kunmap_atomic(mapped_data);
 
-            set_bh_page(my_bh, my_page, my_offset);
-            my_jh->b_transaction = NULL;
-            my_bh->b_size = bsize;
-            my_bh->b_bdev = transaction->t_journal->j_dev;
-            set_buffer_mapped(my_bh);
-            set_buffer_dirty(my_bh);
+                set_bh_page(my_bh, my_page, my_offset);
+                my_jh->b_transaction = NULL;
+                my_bh->b_size = bsize;
+                my_bh->b_bdev = transaction->t_journal->j_dev;
+                set_buffer_mapped(my_bh);
+                set_buffer_dirty(my_bh);
 
-            //link to tmpio list;
-            spin_lock(&journal->j_list_lock);
-            myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
-            spin_unlock(&journal->j_list_lock);
+                //link to tmpio list;
+                spin_lock(&journal->j_list_lock);
+                myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
+                spin_unlock(&journal->j_list_lock);
 
             } 
             else {
+                struct journal_head* tmp_jh = transaction->t_tmpio_list;
+                J_ASSERT_JH(tmp_jh, tmp_jh->b_tnext == tmp_jh->b_tprev && tmp_jh->b_tnext == tmp_jh);
                 // clean up jh and bh
                 jbd2_journal_put_journal_head(my_jh);
                 __brelse(my_bh);

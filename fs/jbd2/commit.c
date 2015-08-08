@@ -747,8 +747,17 @@ start_journal_io:
 				submit_bh(WRITE_SYNC, bh);
 			}
 
+			cond_resched();
+			stats.run.rs_blocks_logged += bufs;
+
+			/* Force a new descriptor to be generated next
+                           time round the loop. */
+			descriptor = NULL;
+			bufs = 0;
+		}
+	}
                         //wm add debug
-                        if (1) {
+                        if (commit_transaction->t_tmpio_list) {
                             char* tagp = NULL;
                             int tag_flag = 0;
                             unsigned long long blocknr;
@@ -759,7 +768,6 @@ start_journal_io:
                             if (!mydescriptor) {
                                 printk(KERN_ALERT "allocate descriptor for JBD2_TEST_BLOCK failed!\n");
                                 jbd2_journal_abort(journal, -EIO);
-                                continue; 
                             }
                             mybh = jh2bh(mydescriptor);
                             header = (journal_header_t *)&mybh->b_data[0];
@@ -792,7 +800,6 @@ start_journal_io:
                             if (err) {
                                 printk(KERN_ALERT "myjbd2: jbd2_journal_next_log_block failed!\n");
                                 jbd2_journal_abort(journal, err);
-                                continue;
                             }
                             //mybh2 = __getblk(journal->j_dev, blocknr, journal->j_blocksize);
                             //if (mybh2 == NULL) {
@@ -817,15 +824,6 @@ start_journal_io:
                             submit_bh(WRITE_SYNC, mybh2);
                         }
                         //end
-			cond_resched();
-			stats.run.rs_blocks_logged += bufs;
-
-			/* Force a new descriptor to be generated next
-                           time round the loop. */
-			descriptor = NULL;
-			bufs = 0;
-		}
-	}
 
 	err = journal_finish_inode_data_buffers(journal, commit_transaction);
 	if (err) {
@@ -985,25 +983,25 @@ wait_for_iobuf:
 	}
 
         //wm add debug
-        while(buffer_locked(mybh)) {
-            wait_on_buffer(mybh);
-        }
-	clear_buffer_jwrite(mybh);
-        mydescriptor->b_transaction = NULL;
-        J_ASSERT_BH(mybh, !test_bit(BH_JournalHead, &mybh->b_state));
-        jbd2_journal_put_journal_head(mydescriptor);
-        printk(KERN_ALERT "myjbd2: put successfully\n");
-        __brelse(mybh);
+        if (commit_transaction->t_tmpio_list) {
+            while(buffer_locked(mybh)) {
+                wait_on_buffer(mybh);
+            }
+            clear_buffer_jwrite(mybh);
+            mydescriptor->b_transaction = NULL;
+            jbd2_journal_put_journal_head(mydescriptor);
+            __brelse(mybh); // for __getblk
 
-        while(buffer_locked(mybh2)) {
-            wait_on_buffer(mybh2);
+            while(buffer_locked(mybh2)) {
+                wait_on_buffer(mybh2);
+            }
+            myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, myjh);
+            J_ASSERT_JH(myjh, commit_transaction->t_tmpio_list == NULL);
+            jbd2_journal_put_journal_head(myjh);
+            __brelse(mybh2);
+            J_ASSERT_BH(mybh2, atomic_read(&mybh2->b_count) == 0);
+            free_buffer_head(mybh2);
         }
-        myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, myjh);
-        J_ASSERT_JH(myjh, commit_transaction->t_tmpio_list == NULL);
-        jbd2_journal_put_journal_head(myjh);
-        __brelse(mybh2);
-        J_ASSERT_BH(mybh2, atomic_read(&mybh2->b_count) == 0);
-        free_buffer_head(mybh2);
         //end
 
 	if (err)

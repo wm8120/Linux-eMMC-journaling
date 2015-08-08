@@ -523,6 +523,9 @@ static int do_one_pass(journal_t *journal,
 			continue;
                     } else {
                         unsigned long io_block;
+                        unsigned long* bitmap;
+                        int bitmap_size;
+                        int bit;
                         printk(KERN_ALERT "myjdb2: sequence: tid = %u\n", sequence);
 
                         tagp = &bh->b_data[sizeof(journal_header_t)];
@@ -541,7 +544,13 @@ static int do_one_pass(journal_t *journal,
                                     "block %ld in log\n",
                                     err, io_block);
                         }
-                        printk(KERN_ALERT "myjbd2: first 2 bytes are %2pb\n", (void *)(obh->b_data));
+                        //printk(KERN_ALERT "myjbd2: first 2 bytes are %2pb\n", (unsigned long *)(obh->b_data));
+                        bitmap = (unsigned long* )obh->b_data;
+                        bitmap_size = jbd2_journal_bitmap_array_size(journal->j_blocksize);
+                        jbd2_for_each_set_bit(bit, bitmap, bitmap_size ) {
+                            printk(KERN_ALERT "myjbd2: the change position is at %d\n", bit);
+                        }
+                        printk(KERN_ALERT "myjbd2: first 2 bytes are %2ph\n", (void *)(obh->b_data+bitmap_size));
                     }
                     
                     brelse(bh);
