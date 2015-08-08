@@ -370,6 +370,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
     struct buffer_head* mybh;
     struct buffer_head* mybh2;
     struct journal_head* mydescriptor;
+    struct journal_head* myjh;
         //end
 	struct transaction_stats_s stats;
 	transaction_t *commit_transaction;
@@ -752,6 +753,7 @@ start_journal_io:
                             int tag_flag = 0;
                             unsigned long long blocknr;
                             int err;
+
                             journal_block_tag_t* tag;
                             mydescriptor = jbd2_journal_get_descriptor_buffer(journal);
                             if (!mydescriptor) {
@@ -777,6 +779,8 @@ start_journal_io:
                             memcpy (tagp, journal->j_uuid, 16);
                             tagp += 16;
 
+                            set_buffer_jwrite(mybh);
+                            set_buffer_dirty(mybh);
                             lock_buffer(mybh);
                             clear_buffer_dirty(mybh);
                             set_buffer_uptodate(mybh);
@@ -790,14 +794,21 @@ start_journal_io:
                                 jbd2_journal_abort(journal, err);
                                 continue;
                             }
-                            mybh2 = __getblk(journal->j_dev, blocknr, journal->j_blocksize);
-                            if (mybh2 == NULL) {
-                                printk(KERN_ALERT "myjbd2: __getblk failed!\n");
-                                jbd2_journal_abort(journal, err);
-                                continue;
-                            }
-                            *((u8*) mybh2->b_data) = 0b00000000;
-                            *((u8*) mybh2->b_data+sizeof(u8)) = 0b11111111;
+                            //mybh2 = __getblk(journal->j_dev, blocknr, journal->j_blocksize);
+                            //if (mybh2 == NULL) {
+                            //    printk(KERN_ALERT "myjbd2: __getblk failed!\n");
+                            //    jbd2_journal_abort(journal, err);
+                            //    continue;
+                            //}
+//                            *((u8*) mybh2->b_data) = 0b00000000;
+//                            *((u8*) mybh2->b_data+sizeof(u8)) = 0b11111111;
+//                            *((u8*) mybh2->b_data+3*sizeof(u8)) = 0b10101010;
+//                            *((u8*) mybh2->b_data+10*sizeof(u8)) = 0b11111111;
+                            myjh = commit_transaction->t_tmpio_list;
+                            J_ASSERT_JH(myjh, myjh->b_tnext == myjh->b_tprev && myjh->b_tnext == myjh);
+
+                            mybh2 = jh2bh(myjh);
+                            mybh2->b_blocknr = blocknr;
 
                             lock_buffer(mybh2);
                             clear_buffer_dirty(mybh2);
@@ -977,14 +988,22 @@ wait_for_iobuf:
         while(buffer_locked(mybh)) {
             wait_on_buffer(mybh);
         }
+	clear_buffer_jwrite(mybh);
+        mydescriptor->b_transaction = NULL;
+        J_ASSERT_BH(mybh, !test_bit(BH_JournalHead, &mybh->b_state));
+        jbd2_journal_put_journal_head(mydescriptor);
+        printk(KERN_ALERT "myjbd2: put successfully\n");
         __brelse(mybh);
 
         while(buffer_locked(mybh2)) {
             wait_on_buffer(mybh2);
         }
+        myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, myjh);
+        J_ASSERT_JH(myjh, commit_transaction->t_tmpio_list == NULL);
+        jbd2_journal_put_journal_head(myjh);
         __brelse(mybh2);
-
-        jbd2_journal_put_journal_head(mydescriptor);
+        J_ASSERT_BH(mybh2, atomic_read(&mybh2->b_count) == 0);
+        free_buffer_head(mybh2);
         //end
 
 	if (err)

@@ -60,6 +60,8 @@ struct journal_head {
         /* wm add */
         unsigned b_new_create; 
         char *snapshot;
+        unsigned long* b_bitmap;
+        size_t b_bitmap_size;
         
         unsigned b_log_all; //dirty so many places, don't optimize
         //end

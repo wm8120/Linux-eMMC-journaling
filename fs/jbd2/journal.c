@@ -339,6 +339,11 @@ int jbd2_journal_write_metadata_buffer(transaction_t *transaction,
 	char *mapped_data;
 	struct buffer_head *new_bh;
 	struct journal_head *new_jh;
+        //wm add
+	struct buffer_head *my_bh;
+	struct journal_head *my_jh;
+        int no_frozen_data = 1;
+        //end
 	struct page *new_page;
 	unsigned int new_offset;
 	struct buffer_head *bh_in = jh2bh(jh_in);
@@ -370,6 +375,20 @@ retry_alloc:
 	atomic_set(&new_bh->b_count, 1);
 	new_jh = jbd2_journal_add_journal_head(new_bh);	/* This sleeps */
 
+myjbd2_retry_alloc:
+        my_bh = alloc_buffer_head(GFP_NOFS);
+        if (!my_bh) {
+            /*
+             * Failure is not an option, but __GFP_NOFAIL is going
+             * away; so we retry ourselves here.
+             */
+            congestion_wait(BLK_RW_ASYNC, HZ/50);
+            goto myjbd2_retry_alloc;
+        }
+        /* keep subsequent assertions sane */
+        atomic_set(&my_bh->b_count, 1);
+        my_jh = jbd2_journal_add_journal_head(my_bh);	/* This sleeps */
+
 	/*
 	 * If a new transaction has already done a buffer copy-out, then
 	 * we use that version of the data for the commit.
@@ -381,9 +400,105 @@ repeat:
 		new_page = virt_to_page(jh_in->b_frozen_data);
 		new_offset = offset_in_page(jh_in->b_frozen_data);
 	} else {
+                no_frozen_data = 1;
 		new_page = jh2bh(jh_in)->b_page;
 		new_offset = offset_in_page(jh2bh(jh_in)->b_data);
 	}
+
+        //wm add
+        J_ASSERT_JH(jh_in, jh_in->b_new_create || (jh_in->snapshot != NULL && jh_in->b_bitmap != NULL));
+        if (jh_in->b_new_create) {
+            printk (KERN_ALERT "myjbd2: new buffer\n");
+        }
+        else {
+            struct page* old_page;
+            unsigned int old_offset;
+            char* old_data;
+            unsigned int count=0;
+            //unsigned int ccount = 0; //how many continued bits are set
+            //int change_start = 0;
+            char* old_start;
+            char* new_start;
+            char* my_start;
+            size_t i=0;
+            size_t bsize = bh_in->b_size;
+            struct page* my_page;
+            unsigned int my_offset;
+            char* merge_data;
+
+            //wm add debug
+            jbd2_bitmap_set(jh_in->b_bitmap, 3, 8);
+            jbd2_bitmap_set(jh_in->b_bitmap, 10, 1);
+
+            if (transaction->t_tmpio_list == NULL /* || data_left is not big enough*/) {
+                jbd_unlock_bh_state(bh_in);
+                merge_data = jbd2_alloc(bsize, GFP_NOFS);
+                if (!merge_data) {
+                    jbd2_journal_put_journal_head(new_jh);
+                    jbd2_journal_put_journal_head(my_jh);
+                    __brelse(my_bh);
+                    J_ASSERT_BH(my_bh, atomic_read(&my_bh->b_count) == 0);
+                    free_buffer_head(my_bh);
+                    return -ENOMEM;
+                }
+                jbd_lock_bh_state(bh_in);
+                if (jh_in->b_frozen_data && no_frozen_data ) {
+                    done_copy_out = 1;
+                    new_page = virt_to_page(jh_in->b_frozen_data);
+                    new_offset = offset_in_page(jh_in->b_frozen_data);
+                }
+            my_page = virt_to_page(merge_data);
+            my_offset = offset_in_page(merge_data);
+
+            mapped_data = kmap_atomic(my_page);
+            my_start = mapped_data + my_offset;
+            memcpy(my_start, jh_in->b_bitmap, jh_in->b_bitmap_size);
+            my_start += jh_in->b_bitmap_size;
+            *((u8*) my_start) = 0b01010101;
+            *((u8*) my_start+sizeof(u8)) = 0b11111111;
+            kunmap_atomic(mapped_data);
+
+            set_bh_page(my_bh, my_page, my_offset);
+            my_jh->b_transaction = NULL;
+            my_bh->b_size = bsize;
+            my_bh->b_bdev = transaction->t_journal->j_dev;
+            set_buffer_mapped(my_bh);
+            set_buffer_dirty(my_bh);
+
+            //link to tmpio list;
+            spin_lock(&journal->j_list_lock);
+            myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
+            spin_unlock(&journal->j_list_lock);
+
+            } 
+            else {
+                // clean up jh and bh
+                jbd2_journal_put_journal_head(my_jh);
+                __brelse(my_bh);
+                J_ASSERT_BH(my_bh, atomic_read(&my_bh->b_count) == 0);
+                free_buffer_head(my_bh);
+                my_jh = transaction->t_tmpio_list;
+                my_bh = jh2bh(my_jh); 
+            }
+
+            mapped_data = kmap_atomic(new_page);
+            new_start = mapped_data + new_offset;
+
+            old_page = virt_to_page(jh_in->snapshot);
+            old_offset = offset_in_page(jh_in->snapshot);
+            old_data = kmap_atomic(old_page);
+            old_start = old_data + old_offset;
+
+            for (i=0; i<jh2bh(jh_in)->b_size; i++) {
+                if ( *((__u8*)(old_start + i)) == *((__u8*)(new_start + i)) ) continue;
+                count++;
+                *((__u8*)(old_start + i)) = *((__u8*)(new_start + i));
+            }
+            printk (KERN_ALERT "myjbd2: changed data %u of %zu\n", count, jh2bh(jh_in)->b_size);
+            kunmap_atomic(old_data);
+            kunmap_atomic(mapped_data);
+        }
+        //end
 
 	mapped_data = kmap_atomic(new_page);
 	/*
@@ -405,34 +520,6 @@ repeat:
 		do_escape = 1;
 	}
 
-        //wm add
-        J_ASSERT_JH(jh_in, jh_in->b_new_create || jh_in->snapshot != NULL);
-        if (jh_in->b_new_create) {
-            printk (KERN_ALERT "myjbd2: new buffer\n");
-        }
-        else {
-            struct page* old_page;
-            unsigned int old_offset;
-            char* old_data;
-            unsigned int count=0;
-            char* old_start;
-            char* new_start = mapped_data + new_offset;
-            size_t i=0;
-
-            old_page = virt_to_page(jh_in->snapshot);
-            old_offset = offset_in_page(jh_in->snapshot);
-            old_data = kmap_atomic(old_page);
-            old_start = old_data + old_offset;
-            for (i=0; i<jh2bh(jh_in)->b_size; i++) {
-                if ( *((__u8*)(old_start + i)) == *((__u8*)(new_start + i)) ) continue;
-                count++;
-                *((__u8*)(old_start + i)) = *((__u8*)(new_start + i));
-            }
-            printk (KERN_ALERT "myjbd2: changed data %u of %zu\n", count, jh2bh(jh_in)->b_size);
-
-            kunmap_atomic(old_data);
-        }
-        //end
 	kunmap_atomic(mapped_data);
 
 	/*
@@ -2496,6 +2583,10 @@ static void __journal_remove_journal_head(struct buffer_head *bh)
         if (jh->snapshot) {
 	    printk(KERN_WARNING "%s: freeing snapshot\n", __func__);
             jbd2_free (jh->snapshot, bh->b_size);
+        }
+        if (jh->b_bitmap) {
+	    printk(KERN_WARNING "%s: freeing bitmap\n", __func__);
+            jbd2_free (jh->b_bitmap, jh->b_bitmap_size);
         }
         //end
 	bh->b_private = NULL;

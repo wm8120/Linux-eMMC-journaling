@@ -541,7 +541,7 @@ static int do_one_pass(journal_t *journal,
                                     "block %ld in log\n",
                                     err, io_block);
                         }
-                        printk(KERN_ALERT "myjbd2: first 2 bytes are %2ph\n", (void *)(obh->b_data));
+                        printk(KERN_ALERT "myjbd2: first 2 bytes are %2pb\n", (void *)(obh->b_data));
                     }
                     
                     brelse(bh);

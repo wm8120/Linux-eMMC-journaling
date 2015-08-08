@@ -30,6 +30,8 @@
 #include <linux/mutex.h>
 #include <linux/timer.h>
 #include <linux/slab.h>
+#include <linux/bitops.h>
+#include <linux/bitmap.h>
 #include <crypto/hash.h>
 #endif
 
@@ -132,6 +134,15 @@ typedef struct journal_s	journal_t;	/* Journal control structure */
 #define JBD2_REVOKE_BLOCK	5
 // wm add debug
 #define JBD2_TEST_BLOCK         6
+
+//how many bytes are in each compare
+#define JBD2_DIFF_UNIT_SHIFT    0
+#define jbd2_journal_bitmap_array_size(blocksize) ((blocksize >> 9) * (64 >> JBD2_DIFF_UNIT_SHIFT))
+#define jbd2_bitmap_set bitmap_set
+#define jbd2_bitmap_clear bitmap_clear
+#define jbd2_print_bitmap_to_string bitmap_scnprintf
+#define jbd2_for_each_set_bit for_each_set_bit
+
 
 /*
  * Standard header for all descriptor blocks:
@@ -545,6 +556,20 @@ struct transaction_s
 	 * log. [j_list_lock]
 	 */
 	struct journal_head	*t_log_list;
+
+        //wm add
+	/*
+	 * Doubly-linked circular list of eMMC optimization [j_list_lock]
+	 */
+	struct journal_head	*t_tmpio_list;
+
+	/*
+	 * Doubly-linked circular list of eMMC optimization [j_list_lock]
+	 */
+	struct journal_head	*t_tmpsd_list;
+
+        size_t      t_tmpio_offset; // offset in the block buffer in tmpio list
+        //end
 
 	/*
 	 * List of inodes whose data we've modified in data=ordered mode.
@@ -1295,6 +1320,38 @@ static inline int jbd_space_needed(journal_t *journal)
 #define BJ_LogCtl	5	/* Buffer contains log descriptors */
 #define BJ_Reserved	6	/* Buffer is reserved for access by journal */
 #define BJ_Types	7
+//wm add
+#define BJ_IO_Temp      9       /* prepare to add to BJ_IO */
+#define BJ_Sd_Temp      9       /* prepare to add to BJ_Shadow */
+
+static inline void
+myjbd2_blist_add_buffer(struct journal_head **list, struct journal_head *jh)
+{
+	if (!*list) {
+		jh->b_tnext = jh->b_tprev = jh;
+		*list = jh;
+	} else {
+		/* Insert at the tail of the list to preserve order */
+		struct journal_head *first = *list, *last = first->b_tprev;
+		jh->b_tprev = last;
+		jh->b_tnext = first;
+		last->b_tnext = first->b_tprev = jh;
+	}
+}
+
+static inline void
+myjbd2_blist_del_buffer(struct journal_head **list, struct journal_head *jh)
+{
+	if (*list == jh) {
+		*list = jh->b_tnext;
+		if (*list == jh)
+			*list = NULL;
+	}
+	jh->b_tprev->b_tnext = jh->b_tnext;
+	jh->b_tnext->b_tprev = jh->b_tprev;
+}
+
+//end
 
 extern int jbd_blocks_per_page(struct inode *inode);
 

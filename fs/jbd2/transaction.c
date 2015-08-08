@@ -864,6 +864,18 @@ repeat:
             }
         }
 
+        if (jh->b_bitmap == NULL) {
+            unsigned long* bitmap;
+            size_t bitmap_size = jbd2_journal_bitmap_array_size(journal->j_blocksize);
+            jbd_unlock_bh_state(bh);
+	    JBUFFER_TRACE(jh, "allocate memory for buffer bitmap");
+            bitmap = jbd2_alloc(bitmap_size, GFP_NOFS);
+            jbd_lock_bh_state(bh);
+            jh->b_bitmap = bitmap;
+            jh->b_bitmap_size = bitmap_size;
+            memset((void*)jh->b_bitmap, 0, bitmap_size);
+        }
+
 done:
         if (need_copy) {
             struct page *page;
