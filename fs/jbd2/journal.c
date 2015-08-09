@@ -386,25 +386,6 @@ repeat:
 	}
 
 	mapped_data = kmap_atomic(new_page);
-	/*
-	 * Fire data frozen trigger if data already wasn't frozen.  Do this
-	 * before checking for escaping, as the trigger may modify the magic
-	 * offset.  If a copy-out happens afterwards, it will have the correct
-	 * data in the buffer.
-	 */
-	if (!done_copy_out)
-		jbd2_buffer_frozen_trigger(jh_in, mapped_data + new_offset,
-					   jh_in->b_triggers);
-
-	/*
-	 * Check for escaping
-	 */
-	if (*((__be32 *)(mapped_data + new_offset)) ==
-				cpu_to_be32(JBD2_MAGIC_NUMBER)) {
-		need_copy_out = 1;
-		do_escape = 1;
-	}
-
         //wm add
         J_ASSERT_JH(jh_in, jh_in->b_new_create || jh_in->snapshot != NULL);
         if (jh_in->b_new_create) {
@@ -425,6 +406,7 @@ repeat:
             old_start = old_data + old_offset;
             for (i=0; i<jh2bh(jh_in)->b_size; i++) {
                 if ( *((__u8*)(old_start + i)) == *((__u8*)(new_start + i)) ) continue;
+                *((__u8*)(old_start + i)) = *((__u8*)(new_start + i));
                 count++;
             }
             printk (KERN_ALERT "myjbd2: changed data %u of %zu\n", count, jh2bh(jh_in)->b_size);
@@ -432,6 +414,25 @@ repeat:
             kunmap_atomic(old_data);
         }
         //end
+	/*
+	 * Fire data frozen trigger if data already wasn't frozen.  Do this
+	 * before checking for escaping, as the trigger may modify the magic
+	 * offset.  If a copy-out happens afterwards, it will have the correct
+	 * data in the buffer.
+	 */
+	if (!done_copy_out)
+		jbd2_buffer_frozen_trigger(jh_in, mapped_data + new_offset,
+					   jh_in->b_triggers);
+
+	/*
+	 * Check for escaping
+	 */
+	if (*((__be32 *)(mapped_data + new_offset)) ==
+				cpu_to_be32(JBD2_MAGIC_NUMBER)) {
+		need_copy_out = 1;
+		do_escape = 1;
+	}
+
 	kunmap_atomic(mapped_data);
 
 	/*
@@ -1369,7 +1370,7 @@ static void jbd2_write_superblock(journal_t *journal, int write_op)
 	}
 	get_bh(bh);
 	bh->b_end_io = end_buffer_write_sync;
-	ret = submit_bh(write_op, bh);
+	ret = submit_bh(write_op | REQ_JOURNAL, bh);
 	wait_on_buffer(bh);
 	if (buffer_write_io_error(bh)) {
 		clear_buffer_write_io_error(bh);

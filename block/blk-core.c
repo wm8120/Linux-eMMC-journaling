@@ -1848,6 +1848,16 @@ EXPORT_SYMBOL(generic_make_request);
  */
 void submit_bio(int rw, struct bio *bio)
 {
+    //wm add
+    if (rw & WRITE) {
+        if (rw & REQ_DISCARD) {
+            printk(KERN_ALERT "myjbd2: journal data size is %u\n", bio->bi_size);
+            rw &= ~REQ_DISCARD; // resolve the weired combination
+        }
+        else
+            printk(KERN_ALERT "myjbd2: data size is %u\n", bio->bi_size);
+    }
+    //end
 	bio->bi_rw |= rw;
 
 	/*

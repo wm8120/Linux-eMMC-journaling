@@ -157,9 +157,9 @@ static int journal_submit_commit_record(journal_t *journal,
 	if (journal->j_flags & JBD2_BARRIER &&
 	    !JBD2_HAS_INCOMPAT_FEATURE(journal,
 				       JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT))
-		ret = submit_bh(WRITE_SYNC | WRITE_FLUSH_FUA, bh);
+		ret = submit_bh(WRITE_SYNC | WRITE_FLUSH_FUA | REQ_JOURNAL, bh);
 	else
-		ret = submit_bh(WRITE_SYNC, bh);
+		ret = submit_bh(WRITE_SYNC | REQ_JOURNAL, bh);
 
 	*cbh = bh;
 	return ret;
@@ -539,14 +539,24 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	 * Now start flushing things to disk, in the order they appear
 	 * on the transaction lists.  Data blocks go first.
 	 */
+        //wm add
+        printk(KERN_ALERT "myjbd2: submit data\n");
 	err = journal_submit_data_buffers(journal, commit_transaction);
+        //wm add
+        printk(KERN_ALERT "myjbd2: submit data done\n");
 	if (err)
 		jbd2_journal_abort(journal, err);
 
+        //wm add
+        printk(KERN_ALERT "myjbd2: submit revoke records\n");
+        //end
 	blk_start_plug(&plug);
 	jbd2_journal_write_revoke_records(journal, commit_transaction,
 					  WRITE_SYNC);
 	blk_finish_plug(&plug);
+        //wm add
+        printk(KERN_ALERT "myjbd2: submit revoke records done\n");
+        //end
 
 	jbd_debug(3, "JBD2: commit phase 2\n");
 
@@ -573,6 +583,9 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	err = 0;
 	descriptor = NULL;
 	bufs = 0;
+        //wm add
+        printk(KERN_ALERT "myjbd2: submit metadata\n");
+        //end
 	blk_start_plug(&plug);
 	while (commit_transaction->t_buffers) {
 
@@ -738,7 +751,7 @@ start_journal_io:
 				clear_buffer_dirty(bh);
 				set_buffer_uptodate(bh);
 				bh->b_end_io = journal_end_buffer_io_sync;
-				submit_bh(WRITE_SYNC, bh);
+				submit_bh(WRITE_SYNC|REQ_JOURNAL, bh);
 			}
 			cond_resched();
 			stats.run.rs_blocks_logged += bufs;
@@ -750,7 +763,13 @@ start_journal_io:
 		}
 	}
 
+        //wm add
+        printk(KERN_ALERT "myjbd2: start wait data\n");
+        //end
 	err = journal_finish_inode_data_buffers(journal, commit_transaction);
+        //wm add
+        printk(KERN_ALERT "myjbd2: end wait data\n");
+        //end
 	if (err) {
 		printk(KERN_WARNING
 			"JBD2: Detected IO errors while flushing file data "
@@ -804,6 +823,9 @@ start_journal_io:
 	}
 
 	blk_finish_plug(&plug);
+        //wm add
+        printk(KERN_ALERT "myjbd2: submit metadata done\n");
+        //end
 
 	/* Lo and behold: we have just managed to send a transaction to
            the log.  Before we can commit it, wait for the IO so far to
@@ -818,6 +840,9 @@ start_journal_io:
 
 	jbd_debug(3, "JBD2: commit phase 3\n");
 
+        //wm add
+        printk(KERN_ALERT "myjbd2: start wait metadata\n");
+        //end
 	/*
 	 * akpm: these are BJ_IO, and j_list_lock is not needed.
 	 * See __journal_try_to_free_buffer.
@@ -906,6 +931,9 @@ wait_for_iobuf:
 		__brelse(bh);		/* One for getblk */
 		/* AKPM: bforget here */
 	}
+        //wm add
+        printk(KERN_ALERT "myjbd2: end wait metadata\n");
+        //end
 
 	if (err)
 		jbd2_journal_abort(journal, err);
@@ -916,6 +944,9 @@ wait_for_iobuf:
 	commit_transaction->t_state = T_COMMIT_JFLUSH;
 	write_unlock(&journal->j_state_lock);
 
+        //wm add
+        printk(KERN_ALERT "myjbd2: submit commit record\n");
+        //end
 	if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
 				       JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)) {
 		err = journal_submit_commit_record(journal, commit_transaction,
@@ -925,6 +956,9 @@ wait_for_iobuf:
 	}
 	if (cbh)
 		err = journal_wait_on_commit_record(journal, cbh);
+        //wm add
+        printk(KERN_ALERT "myjbd2: done submit and wait commit record\n");
+        //end
 	if (JBD2_HAS_INCOMPAT_FEATURE(journal,
 				      JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT) &&
 	    journal->j_flags & JBD2_BARRIER) {

@@ -680,7 +680,7 @@ static void flush_descriptor(journal_t *journal,
 	set_buffer_jwrite(bh);
 	BUFFER_TRACE(bh, "write");
 	set_buffer_dirty(bh);
-	write_dirty_buffer(bh, write_op);
+	write_dirty_buffer(bh, write_op | REQ_JOURNAL);
 }
 #endif
 
