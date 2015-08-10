@@ -61,6 +61,11 @@ void jbd2_journal_free_transaction(transaction_t *transaction)
 {
 	if (unlikely(ZERO_OR_NULL_PTR(transaction)))
 		return;
+
+//        //wm add
+//        if (transaction->t_scratchpad != NULL) {
+//            jbd2_free(transaction->t_scratchpad, transaction->t_journal->j_blocksize);
+//        }
 	kmem_cache_free(transaction_cache, transaction);
 }
 
@@ -181,6 +186,19 @@ alloc_transaction:
 			}
 			return -ENOMEM;
 		}
+
+//                //wm add
+//alloc_scratch_pad:
+//                new_transaction -> t_scratchpad = jbd2_alloc(journal->j_blocksize, gfp_mask); 
+//
+//                if (!new_transaction->t_scratchpad) {
+//			if ((gfp_mask & __GFP_FS) == 0) {
+//				congestion_wait(BLK_RW_ASYNC, HZ/50);
+//				goto alloc_transaction;
+//			}
+//			return -ENOMEM;
+//                }
+//                //end
 	}
 
 	jbd_debug(3, "New handle %p going live.\n", handle);

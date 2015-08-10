@@ -137,11 +137,17 @@ typedef struct journal_s	journal_t;	/* Journal control structure */
 
 //how many bytes are in each compare
 #define JBD2_DIFF_UNIT_SHIFT    0
+#define jbd2_unit_t             __u16
+//how many blocks' changes are hoped to be merged in one block
+#define jbd2_belta              2 
+#define jbd2_alpha              (sizeof(jbd2_unit_t) >> 3)
+
 #define jbd2_journal_bitmap_array_size(blocksize) ((blocksize >> 9) * (64 >> JBD2_DIFF_UNIT_SHIFT))
-#define jbd2_bitmap_set bitmap_set
-#define jbd2_bitmap_clear bitmap_clear
-#define jbd2_print_bitmap_to_string bitmap_scnprintf
-#define jbd2_for_each_set_bit for_each_set_bit
+#define jbd2_change_merge_thresh(blocksize)       (((8*jbd2_alpha-jbd2_belta)/(8*jbd2_alpha*jbd2_alpha*jbd2_belta)) * blocksize)
+#define jbd2_bitmap_set                     bitmap_set
+#define jbd2_bitmap_clear                   bitmap_clear
+#define jbd2_print_bitmap_to_string         bitmap_scnprintf
+#define jbd2_for_each_set_bit               for_each_set_bit
 
 
 /*
@@ -569,6 +575,10 @@ struct transaction_s
 	struct journal_head	*t_tmpsd_list;
 
         size_t      t_tmpio_offset; // offset in the block buffer in tmpio list
+
+        struct journal_head     *cur_tmpio; //points to the jh with merged data in tmpio list
+
+        //char* t_scratchpad;
         //end
 
 	/*

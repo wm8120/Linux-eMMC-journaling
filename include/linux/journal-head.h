@@ -64,6 +64,8 @@ struct journal_head {
         size_t b_bitmap_size;
         
         unsigned b_log_all; //dirty so many places, don't optimize
+
+        sector_t b_blocknr; //debug only
         //end
 
 	/*
