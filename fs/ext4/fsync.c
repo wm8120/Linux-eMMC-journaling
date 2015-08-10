@@ -120,6 +120,9 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	tid_t commit_tid;
 	bool needs_barrier = false;
 
+        //wm add
+        printk(KERN_ALERT "myjbd2: enter ext4_sync_file\n");
+        //end
 	J_ASSERT(ext4_journal_current_handle() == NULL);
 
 	trace_ext4_sync_file_enter(file, datasync);
@@ -172,6 +175,9 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		if (!ret)
 			ret = err;
 	}
+        //wm add
+        printk(KERN_ALERT "myjbd2: exit ext4_sync_file\n");
+        //end
  out:
 	mutex_unlock(&inode->i_mutex);
 	trace_ext4_sync_file_exit(inode, ret);
