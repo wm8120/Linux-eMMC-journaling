@@ -240,7 +240,7 @@ struct jbd2_journal_revoke_tail {
 #define JBD2_FLAG_DELETED	4	/* block deleted by this transaction */
 #define JBD2_FLAG_LAST_TAG	8	/* last tag in this descriptor block */
 // wm add debug
-#define JBD2_FLAG_DEBUG_SKIP    16
+#define JBD2_FLAG_LOG_DIFF      16
 
 
 /*

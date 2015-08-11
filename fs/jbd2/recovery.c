@@ -532,8 +532,8 @@ static int do_one_pass(journal_t *journal,
                         tag = (journal_block_tag_t *) tagp;
                         flags = be16_to_cpu(tag->t_flags);
                         printk(KERN_ALERT "block number is %llu\n", read_tag_block(tag_bytes, tag));
-                        if (flags & JBD2_FLAG_DEBUG_SKIP) {
-                            printk(KERN_ALERT "It's a JBD2_FLAG_DEBUG_SKIP\n");
+                        if (flags & JBD2_FLAG_LOG_DIFF) {
+                            printk(KERN_ALERT "It's a JBD2_FLAG_LOG_DIFF\n");
                         }
                         io_block = next_log_block++;
                         wrap(journal, next_log_block);
@@ -607,7 +607,7 @@ static int do_one_pass(journal_t *journal,
 				flags = be16_to_cpu(tag->t_flags);
 
                                 // wm add debug
-                                if (flags & JBD2_FLAG_DEBUG_SKIP) {
+                                if (flags & JBD2_FLAG_LOG_DIFF) {
                                     printk(KERN_ALERT "myjbd2: skip this buffer, "
                                             "the blocknr is %llu\n", read_tag_block(tag_bytes, tag));
                                     goto skip_write;

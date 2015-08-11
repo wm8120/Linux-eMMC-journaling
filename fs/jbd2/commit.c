@@ -756,74 +756,6 @@ start_journal_io:
 			bufs = 0;
 		}
 	}
-                        //wm add debug
-                        if (commit_transaction->t_tmpio_list) {
-                            char* tagp = NULL;
-                            int tag_flag = 0;
-                            unsigned long long blocknr;
-                            int err;
-
-                            journal_block_tag_t* tag;
-                            mydescriptor = jbd2_journal_get_descriptor_buffer(journal);
-                            if (!mydescriptor) {
-                                printk(KERN_ALERT "allocate descriptor for JBD2_TEST_BLOCK failed!\n");
-                                jbd2_journal_abort(journal, -EIO);
-                            }
-                            mybh = jh2bh(mydescriptor);
-                            header = (journal_header_t *)&mybh->b_data[0];
-                            header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
-                            header->h_blocktype = cpu_to_be32(JBD2_TEST_BLOCK);
-                            header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
-
-                            tag_flag |= JBD2_FLAG_DEBUG_SKIP;
-
-                            tagp = &mybh->b_data[sizeof(journal_header_t)];
-                            tag = (journal_block_tag_t *) tagp;
-                            write_tag_block(tag_bytes, tag, 0);
-                            tag->t_flags = cpu_to_be16(tag_flag);
-
-                            tagp += tag_bytes;
-
-                            memcpy (tagp, journal->j_uuid, 16);
-                            tagp += 16;
-
-                            set_buffer_jwrite(mybh);
-                            set_buffer_dirty(mybh);
-                            lock_buffer(mybh);
-                            clear_buffer_dirty(mybh);
-                            set_buffer_uptodate(mybh);
-                            mybh->b_end_io = journal_end_buffer_io_sync;
-                            submit_bh(WRITE_SYNC, mybh);
-
-                            //data block
-                            err = jbd2_journal_next_log_block(journal, &blocknr);
-                            if (err) {
-                                printk(KERN_ALERT "myjbd2: jbd2_journal_next_log_block failed!\n");
-                                jbd2_journal_abort(journal, err);
-                            }
-                            //mybh2 = __getblk(journal->j_dev, blocknr, journal->j_blocksize);
-                            //if (mybh2 == NULL) {
-                            //    printk(KERN_ALERT "myjbd2: __getblk failed!\n");
-                            //    jbd2_journal_abort(journal, err);
-                            //    continue;
-                            //}
-//                            *((u8*) mybh2->b_data) = 0b00000000;
-//                            *((u8*) mybh2->b_data+sizeof(u8)) = 0b11111111;
-//                            *((u8*) mybh2->b_data+3*sizeof(u8)) = 0b10101010;
-//                            *((u8*) mybh2->b_data+10*sizeof(u8)) = 0b11111111;
-                            myjh = commit_transaction->t_tmpio_list;
-                            J_ASSERT_JH(myjh, myjh->b_tnext == myjh->b_tprev && myjh->b_tnext == myjh);
-
-                            mybh2 = jh2bh(myjh);
-                            mybh2->b_blocknr = blocknr;
-
-                            lock_buffer(mybh2);
-                            clear_buffer_dirty(mybh2);
-                            set_buffer_uptodate(mybh2);
-                            mybh2->b_end_io = journal_end_buffer_io_sync;
-                            submit_bh(WRITE_SYNC, mybh2);
-                        }
-                        //end
 
 	err = journal_finish_inode_data_buffers(journal, commit_transaction);
 	if (err) {
@@ -879,6 +811,127 @@ start_journal_io:
 	}
 
 	blk_finish_plug(&plug);
+
+        //wm add debug
+        if (commit_transaction->t_tmpio_list) {
+            char* tagp = NULL;
+            journal_block_tag_t* tag;
+            int tag_flag = 0;
+            unsigned long long blocknr;
+            int err;
+            int space_left = 0;
+            struct journal_head* jh;  //first jh in tmp io list
+            struct journal_head* jhp;
+            struct journal_head* jhi;
+            int count = 1;
+
+            bufs = 0;
+            mydescriptor = NULL;
+            J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
+
+            while (commit_transaction->t_tmpio_list != NULL) {
+                jhi = jh = commit_transaction->t_tmpio_list;
+                jhp = jh->b_tnext;
+
+                J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
+
+                while (jh2bh(jhp)->b_data == NULL) {
+                    count++;
+                }
+                
+                if (mydescriptor == NULL || space_left < count*tag_bytes) {
+                    
+                    if (bufs > 0) {
+                            // last tag
+                            tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
+                    }
+
+                    mydescriptor = jbd2_journal_get_descriptor_buffer(journal);
+                    if (!mydescriptor) {
+                        printk(KERN_ALERT "allocate descriptor for JBD2_TEST_BLOCK failed!\n");
+                        jbd2_journal_abort(journal, -EIO);
+                    }
+                    // header
+                    mybh = jh2bh(mydescriptor);
+                    header = (journal_header_t *)&mybh->b_data[0];
+                    header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
+                    header->h_blocktype = cpu_to_be32(JBD2_TEST_BLOCK);
+                    header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
+
+                    tagp = &mybh->b_data[sizeof(journal_header_t)];
+                    tag = (journal_block_tag_t *) tagp;
+
+                    first_tag = 1;
+                    space_left = mybh->b_size - sizeof(journal_header_t);
+                    wbuf[bufs++] = mydescriptor;
+                }
+
+                do {
+                    if (first_tag) {
+                        memcpy (tagp, journal->j_uuid, 16);
+                        tagp += 16;
+                        space_left -= 16;
+                    }
+
+                    // fill tag
+                    tag_flag |= JBD2_FLAG_LOG_DIFF;
+                    if (first_tag) first_tag = 0; 
+                    else
+                        tag_flag |= JBD2_FLAG_SAME_UUID;
+
+                    if (jhi->b_escape) tag_flag |= JBD2_FLAG_ESCAPE;
+
+                    write_tag_block(tag_bytes, tag, jhi->b_blocknr);
+                    tag->t_flags = cpu_to_be16(tag_flag);
+
+                    tagp += tag_bytes;
+                    space_left -= tag_bytes;
+
+                    if (jhi != jh) {
+                        mybh = jh2bh(jhi);
+                        J_ASSERT_BH(mybh, mybh->b_data == NULL);
+
+                        myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jhi);
+                        jbd2_journal_put_journal_head(jhi);
+                        __brelse(mybh);
+                        J_ASSERT_BH(mybh, atomic_read(&mybh->b_count) == 0);
+                        free_buffer_head(mybh);
+                    }
+
+                    jhi = jh->b_tnext;
+                } while (jhi != jhp);
+
+                J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
+                jbd2_journal_next_log_block(journal, &blocknr);
+                jh2bh(jh)->b_blocknr = blocknr;
+                wbuf[bufs++] = jh2bh(jh);
+
+                // insert jh to tmp shadow list
+                myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jh);
+                myjbd2_blist_add_buffer(&commit_transaction->t_tmpsd_list, jh);
+
+                if (commit_transaction->t_tmpio_list == NULL || (bufs+2) > journal->j_wbufsize) {
+                    //write out buffers
+                    int i;
+
+                    tag_flag |= JBD2_FLAG_LAST_TAG;
+
+                    for (i=0; i<bufs; i++) {
+                        struct buffer_head* bh = wbuf[i];
+
+                        lock_buffer(bh);
+                        clear_buffer_dirty(bh);
+                        set_buffer_uptodate(bh);
+                        bh->b_end_io = journal_end_buffer_io_sync;
+                        submit_bh(WRITE_SYNC, wbuf[i]);
+                    }
+
+                    bufs = 0;
+                    mydescriptor == NULL;
+                }
+            }
+        }
+        //end
 
 	/* Lo and behold: we have just managed to send a transaction to
            the log.  Before we can commit it, wait for the IO so far to

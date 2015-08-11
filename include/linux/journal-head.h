@@ -64,8 +64,10 @@ struct journal_head {
         size_t b_bitmap_size;
         
         unsigned b_log_all; //dirty so many places, don't optimize
+        unsigned b_log_diff; //this journal head is only log diffs in journaling
 
-        sector_t b_blocknr; //debug only
+        sector_t b_blocknr; // debug only
+        unsigned b_escape;  // debug only
         //end
 
 	/*

@@ -458,6 +458,8 @@ repeat:
             if (count > jbd2_change_merge_thresh(journal->j_blocksize))
                 goto no_merge;
 
+            jh_in->b_log_diff = 1; //mark it only log diff, for checkpoint list select
+
             if (transaction->t_tmpio_list) {
                 space_left = journal->j_blocksize - transaction->t_tmpio_offset;
             }
@@ -523,8 +525,6 @@ repeat:
 
             kunmap_atomic(mapped_data);
             kunmap_atomic(old_data);
-
-
         }
 
 no_merge:
@@ -595,6 +595,9 @@ no_merge:
 		mapped_data = kmap_atomic(new_page);
 		*((unsigned int *)(mapped_data + new_offset)) = 0;
 		kunmap_atomic(mapped_data);
+
+                //wm add debug
+                jh_in->b_escape = 1;
 	}
 
 	set_bh_page(new_bh, new_page, new_offset);
