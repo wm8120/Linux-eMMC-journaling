@@ -1854,6 +1854,14 @@ void submit_bio(int rw, struct bio *bio)
             printk(KERN_ALERT "myjbd2: journal data size is %u\n", bio->bi_size);
             rw &= ~REQ_DISCARD; // resolve the weired combination
         }
+        else if (rw & REQ_SECURE) {
+            printk(KERN_ALERT "myjbd2: checkpoint data size is %u\n", bio->bi_size);
+            rw &= ~REQ_SECURE; // resolve the weired combination
+        }
+        else if (rw & REQ_RAHEAD) {
+            printk(KERN_ALERT "myjbd2: jbd superblock data size is %u\n", bio->bi_size);
+            rw &= ~REQ_RAHEAD; // resolve the weired combination
+        }
         else
             printk(KERN_ALERT "myjbd2: data size is %u\n", bio->bi_size);
     }

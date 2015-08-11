@@ -201,6 +201,8 @@ enum rq_flag_bits {
 #define REQ_CLONE_MASK		REQ_COMMON_MASK
 //wm add
 #define REQ_JOURNAL             (REQ_WRITE | REQ_DISCARD) // a paradox opition to identify journal flag. profiling only
+#define REQ_CHECKPOINT          (REQ_WRITE | REQ_SECURE) // a paradox opition to identify checkpoint flag. profiling only
+#define REQ_JBD_SB              (REQ_WRITE | REQ_RAHEAD)
 //end
 
 #define BIO_NO_ADVANCE_ITER_MASK	(REQ_DISCARD|REQ_WRITE_SAME)
