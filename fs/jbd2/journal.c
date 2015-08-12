@@ -418,7 +418,7 @@ repeat:
             char* new_start;
             char* my_start;
             size_t i=0;
-            size_t bsize = journal->j_blocksize;
+            size_t jsize = journal->j_blocksize;
             struct page* my_page;
             unsigned int my_offset;
             char* merge_data;
@@ -438,7 +438,6 @@ repeat:
             for (i=0; i<jh_in->b_bitmap_size*8; i++) {
                 void* copyfrom = (void*)(new_start+i*unit);
                 void* copyto = (void*)(old_start+i*unit);
-                printk (KERN_ALERT "copyfrom %u, copyto %u\n, unit %u", copyfrom, copyto, unit);
                 J_ASSERT((i+1)*unit <= jh2bh(jh_in)->b_size);
                 if ( *((jbd2_unit_t*) copyto) == *((jbd2_unit_t*) copyfrom) ) continue;
                 if (ccount == 0) {
@@ -450,14 +449,13 @@ repeat:
                     ccount++;
                 }
                 else {
-                    printk(KERN_ALERT "%d, len %u\n", change_start, ccount);
+                    //printk(KERN_ALERT "%d, len %u\n", change_start, ccount);
                     jbd2_bitmap_set(jh_in->b_bitmap, change_start, ccount); 
                     change_start = i;
                     ccount = 1;
                 }
                     
-                // printk(KERN_ALERT "set %d bit to 1\n", i);
-                //jbd2_bitmap_set(jh_in->b_bitmap, i, 1);
+                printk(KERN_ALERT "set bit %u\n", i);
                 count++;
                 *((jbd2_unit_t*)(old_start + i*unit)) = *((jbd2_unit_t*)(new_start + i*unit)); //update snapshot
                 if (debugi < 20) {
@@ -465,7 +463,8 @@ repeat:
                     printk(KERN_ALERT "compare %4ph\n", (void *)(old_start + i*unit));
                 }
             }
-            jbd2_bitmap_set(jh_in->b_bitmap, change_start, ccount); 
+            if (ccount != 0)
+                jbd2_bitmap_set(jh_in->b_bitmap, change_start, ccount); 
             debugi = 0;
             kunmap_atomic(old_data);
             kunmap_atomic(mapped_data);
@@ -482,8 +481,7 @@ repeat:
 
             if (transaction->t_tmpio_list == NULL || space_left < jh_in->b_bitmap_size + count*unit) {
                 jbd_unlock_bh_state(bh_in);
-                printk(KERN_ALERT "bsize is %u\n", bsize);
-                merge_data = jbd2_alloc(bsize, GFP_NOFS);
+                merge_data = jbd2_alloc(jsize, GFP_NOFS);
                 if (!merge_data) {
                     jbd2_journal_put_journal_head(new_jh);
                     jbd2_journal_put_journal_head(my_jh);
@@ -506,7 +504,7 @@ repeat:
                 set_bh_page(my_bh, my_page, my_offset);
                 my_jh->b_transaction = NULL;
                 my_jh->b_blocknr = jh2bh(jh_in)->b_blocknr; //debug only
-                my_bh->b_size = bsize;
+                my_bh->b_size = jsize;
                 my_bh->b_bdev = transaction->t_journal->j_dev;
                 set_buffer_mapped(my_bh);
                 set_buffer_dirty(my_bh);
@@ -520,7 +518,7 @@ repeat:
                 // link to tmpio list
                 myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
                 my_jh = transaction->cur_tmpio;
-                my_jh->b_blocknr = jh2bh(jh_in)->b_blocknr; //debug only
+                my_jh->b_blocknr = bh_in->b_blocknr; //debug only
                 my_bh = jh2bh(my_jh); 
                 J_ASSERT_BH(my_bh, buffer_mapped(my_bh) && my_bh->b_data != NULL);
                 my_page = virt_to_page(my_bh->b_data);
@@ -538,14 +536,16 @@ repeat:
             my_start += jh_in->b_bitmap_size;
 
             // copy changed bytes
-            // printk(KERN_ALERT "bitmap %32ph\n", jh_in->b_bitmap);
-            jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size) {
-                //printk(KERN_ALERT "%u\n", i);
-                memcpy(my_start+i*unit, old_start+i*unit, unit);
+            printk(KERN_ALERT "bitmap %32ph\n", jh_in->b_bitmap);
+            jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
+                J_ASSERT((i+1)*unit <= journal->j_blocksize);
+                printk(KERN_ALERT "bit %u change\n", i);
+                memcpy(my_start, old_start+i*unit, unit);
                 if (debugi < 20) {
                     debugi++;
-                    printk(KERN_ALERT "copy change %4ph\n", (void *)(my_start + i*unit));
+                    printk(KERN_ALERT "copy change %4ph\n", (void *)my_start);
                 }
+                my_start += unit;
             }
 
             // update offset
