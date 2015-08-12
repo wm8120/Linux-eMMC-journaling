@@ -225,6 +225,32 @@ static int count_tags(journal_t *journal, struct buffer_head *bh)
 	return nr;
 }
 
+//wm add
+static int count_tags_with_merge(journal_t *journal, struct buffer_head *bh)
+{
+	char *			tagp;
+	journal_block_tag_t *	tag;
+	int			nr = 0, size = journal->j_blocksize;
+	int			tag_bytes = journal_tag_bytes(journal);
+
+	tagp = &bh->b_data[sizeof(journal_header_t)];
+
+	while ((tagp - bh->b_data + tag_bytes) <= size) {
+		tag = (journal_block_tag_t *) tagp;
+
+                if (tag->t_flags & cpu_to_be16(JBD2_FLAG_MERGE_LAST))
+		    nr++;
+		tagp += tag_bytes;
+		if (!(tag->t_flags & cpu_to_be16(JBD2_FLAG_SAME_UUID)))
+			tagp += 16;
+
+		if (tag->t_flags & cpu_to_be16(JBD2_FLAG_LAST_TAG))
+			break;
+	}
+
+	return nr;
+}
+//end
 
 /* Make sure we wrap around the log correctly! */
 #define wrap(journal, var)						\
@@ -517,44 +543,50 @@ static int do_one_pass(journal_t *journal,
                 //wm add debug
                 case JBD2_TEST_BLOCK:
                     if (pass != PASS_REPLAY) {
-                        next_log_block += 1; //only one block follows test descriptor
+                        int tags = count_tags_with_merge(journal, bh); 
+                        printk(KERN_ALERT "tid = %u, number of data blocks are %d\n",  sequence, tags);
+                        next_log_block += tags; //only one block follows test descriptor
 			wrap(journal, next_log_block);
 			put_bh(bh);
 			continue;
-                    } else {
-                        unsigned long io_block;
-                        unsigned long* bitmap;
-                        int bitmap_size;
-                        int bit;
-                        printk(KERN_ALERT "myjdb2: sequence: tid = %u\n", sequence);
+                    } 
+                   // else {
+                   //     unsigned long io_block;
+                   //     unsigned long* bitmap;
+                   //     int bitmap_size;
+                   //     int bit;
+                   //     printk(KERN_ALERT "myjdb2: sequence: tid = %u\n", sequence);
 
-                        tagp = &bh->b_data[sizeof(journal_header_t)];
-                        tag = (journal_block_tag_t *) tagp;
-                        flags = be16_to_cpu(tag->t_flags);
-                        printk(KERN_ALERT "block number is %llu\n", read_tag_block(tag_bytes, tag));
-                        if (flags & JBD2_FLAG_LOG_DIFF) {
-                            printk(KERN_ALERT "It's a JBD2_FLAG_LOG_DIFF\n");
-                        }
-                        io_block = next_log_block++;
-                        wrap(journal, next_log_block);
-                        err = jread(&obh, journal, io_block);
-                        if (err) {
-                            success = err;
-                            printk(KERN_ALERT "myjbd2: IO error %d recovering "
-                                    "block %ld in log\n",
-                                    err, io_block);
-                        }
-                        //printk(KERN_ALERT "myjbd2: first 2 bytes are %2pb\n", (unsigned long *)(obh->b_data));
-                        bitmap = (unsigned long* )obh->b_data;
-                        bitmap_size = jbd2_journal_bitmap_array_size(journal->j_blocksize);
-                        jbd2_for_each_set_bit(bit, bitmap, bitmap_size ) {
-                            printk(KERN_ALERT "myjbd2: the change position is at %d\n", bit);
-                        }
-                        printk(KERN_ALERT "myjbd2: first 2 bytes are %2ph\n", (void *)(obh->b_data+bitmap_size));
-                    }
-                    
-                    brelse(bh);
-                    brelse(obh);
+                   //     tagp = &bh->b_data[sizeof(journal_header_t)];
+                   //     tag = (journal_block_tag_t *) tagp;
+                   //     flags = be16_to_cpu(tag->t_flags);
+                   //     printk(KERN_ALERT "block number is %llu\n", read_tag_block(tag_bytes, tag));
+                   //     if (flags & JBD2_FLAG_LOG_DIFF) {
+                   //         printk(KERN_ALERT "It's a JBD2_FLAG_LOG_DIFF\n");
+                   //     }
+                   //     io_block = next_log_block++;
+                   //     wrap(journal, next_log_block);
+                   //     err = jread(&obh, journal, io_block);
+                   //     if (err) {
+                   //         success = err;
+                   //         printk(KERN_ALERT "myjbd2: IO error %d recovering "
+                   //                 "block %ld in log\n",
+                   //                 err, io_block);
+                   //     }
+                   //     //printk(KERN_ALERT "myjbd2: first 2 bytes are %2pb\n", (unsigned long *)(obh->b_data));
+                   //     bitmap = (unsigned long* )obh->b_data;
+                   //     bitmap_size = jbd2_journal_bitmap_array_size(journal->j_blocksize);
+                   //     jbd2_for_each_set_bit(bit, bitmap, bitmap_size ) {
+                   //         printk(KERN_ALERT "myjbd2: the change position is at %d\n", bit);
+                   //     }
+                   //     printk(KERN_ALERT "myjbd2: first 2 bytes are %2ph\n", (void *)(obh->b_data+bitmap_size));
+                   // }
+                   // 
+                   // brelse(bh);
+                   // brelse(obh);
+                    next_log_block += count_tags_with_merge(journal, bh); //only one block follows test descriptor
+                    wrap(journal, next_log_block);
+                    put_bh(bh);
                     continue;
 
 		case JBD2_DESCRIPTOR_BLOCK:

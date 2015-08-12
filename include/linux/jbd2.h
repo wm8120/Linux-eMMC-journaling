@@ -136,14 +136,13 @@ typedef struct journal_s	journal_t;	/* Journal control structure */
 #define JBD2_TEST_BLOCK         6
 
 //how many bytes are in each compare
-#define JBD2_DIFF_UNIT_SHIFT    0
-#define jbd2_unit_t             __u16
+#define jbd2_unit_t             __u32
 //how many blocks' changes are hoped to be merged in one block
-#define jbd2_belta              2 
-#define jbd2_alpha              (sizeof(jbd2_unit_t) >> 3)
+#define jbd2_belta              4 
+#define jbd2_alpha              sizeof(jbd2_unit_t)
 
-#define jbd2_journal_bitmap_array_size(blocksize) ((blocksize >> 9) * (64 >> JBD2_DIFF_UNIT_SHIFT))
-#define jbd2_change_merge_thresh(blocksize)       (((8*jbd2_alpha-jbd2_belta)/(8*jbd2_alpha*jbd2_alpha*jbd2_belta)) * blocksize)
+#define jbd2_journal_bitmap_array_size(blocksize) ((blocksize >> 9) * 64 / jbd2_alpha)
+#define jbd2_change_merge_thresh(blocksize)       ((8*jbd2_alpha-jbd2_belta) * blocksize/(8*jbd2_alpha*jbd2_alpha*jbd2_belta))
 #define jbd2_bitmap_set                     bitmap_set
 #define jbd2_bitmap_clear                   bitmap_clear
 #define jbd2_print_bitmap_to_string         bitmap_scnprintf
@@ -241,6 +240,7 @@ struct jbd2_journal_revoke_tail {
 #define JBD2_FLAG_LAST_TAG	8	/* last tag in this descriptor block */
 // wm add debug
 #define JBD2_FLAG_LOG_DIFF      16
+#define JBD2_FLAG_MERGE_LAST    32      /* no more changes log are in current block */
 
 
 /*

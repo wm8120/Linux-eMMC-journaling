@@ -884,7 +884,7 @@ repeat:
 
         if (jh->b_bitmap == NULL) {
             unsigned long* bitmap;
-            size_t bitmap_size = jbd2_journal_bitmap_array_size(journal->j_blocksize);
+            size_t bitmap_size = jbd2_journal_bitmap_array_size(jh2bh(jh)->b_size);
             jbd_unlock_bh_state(bh);
 	    JBUFFER_TRACE(jh, "allocate memory for buffer bitmap");
             bitmap = jbd2_alloc(bitmap_size, GFP_NOFS);

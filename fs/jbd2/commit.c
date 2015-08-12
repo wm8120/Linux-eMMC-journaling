@@ -813,7 +813,9 @@ start_journal_io:
 	blk_finish_plug(&plug);
 
         //wm add debug
+        blk_start_plug(&plug);
         if (commit_transaction->t_tmpio_list) {
+            printk(KERN_ALERT "myjbd2: enter merge block stage\n");
             char* tagp = NULL;
             journal_block_tag_t* tag;
             int tag_flag = 0;
@@ -827,7 +829,6 @@ start_journal_io:
 
             bufs = 0;
             mydescriptor = NULL;
-            J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
 
             while (commit_transaction->t_tmpio_list != NULL) {
                 jhi = jh = commit_transaction->t_tmpio_list;
@@ -837,6 +838,7 @@ start_journal_io:
 
                 while (jh2bh(jhp)->b_data == NULL) {
                     count++;
+                    jhp = jhp->b_tnext;
                 }
                 
                 if (mydescriptor == NULL || space_left < count*tag_bytes) {
@@ -863,7 +865,7 @@ start_journal_io:
 
                     first_tag = 1;
                     space_left = mybh->b_size - sizeof(journal_header_t);
-                    wbuf[bufs++] = mydescriptor;
+                    wbuf[bufs++] = mybh;
                 }
 
                 do {
@@ -901,7 +903,10 @@ start_journal_io:
                     jhi = jh->b_tnext;
                 } while (jhi != jhp);
 
+                tag->t_flags |= cpu_to_be16(JBD2_FLAG_MERGE_LAST);
+
                 J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
+                J_ASSERT_JH(jh, buffer_mapped(jh2bh(jh)));
                 jbd2_journal_next_log_block(journal, &blocknr);
                 jh2bh(jh)->b_blocknr = blocknr;
                 wbuf[bufs++] = jh2bh(jh);
@@ -914,7 +919,7 @@ start_journal_io:
                     //write out buffers
                     int i;
 
-                    tag_flag |= JBD2_FLAG_LAST_TAG;
+		    tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
 
                     for (i=0; i<bufs; i++) {
                         struct buffer_head* bh = wbuf[i];
@@ -931,6 +936,7 @@ start_journal_io:
                 }
             }
         }
+	blk_finish_plug(&plug);
         //end
 
 	/* Lo and behold: we have just managed to send a transaction to
@@ -1036,25 +1042,22 @@ wait_for_iobuf:
 	}
 
         //wm add debug
-        if (commit_transaction->t_tmpio_list) {
+        i = 0;
+        while (commit_transaction->t_tmpsd_list) {
+            i++; 
+            myjh = commit_transaction->t_tmpsd_list->b_tprev;
+            mybh = jh2bh(myjh);
             while(buffer_locked(mybh)) {
                 wait_on_buffer(mybh);
             }
-            clear_buffer_jwrite(mybh);
-            mydescriptor->b_transaction = NULL;
-            jbd2_journal_put_journal_head(mydescriptor);
-            __brelse(mybh); // for __getblk
-
-            while(buffer_locked(mybh2)) {
-                wait_on_buffer(mybh2);
-            }
-            myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, myjh);
-            J_ASSERT_JH(myjh, commit_transaction->t_tmpio_list == NULL);
+            myjbd2_blist_del_buffer(&commit_transaction->t_tmpsd_list, myjh);
             jbd2_journal_put_journal_head(myjh);
-            __brelse(mybh2);
-            J_ASSERT_BH(mybh2, atomic_read(&mybh2->b_count) == 0);
-            free_buffer_head(mybh2);
+            jbd2_free(mybh->b_data, mybh->b_size);
+            __brelse(mybh);
+            J_ASSERT_BH(mybh, atomic_read(&mybh->b_count) == 0);
+            free_buffer_head(mybh);
         }
+        printk(KERN_ALERT "myjbd2: tid=%u the block after merge are %d\n", commit_transaction->t_tid, i);
         //end
 
 	if (err)
