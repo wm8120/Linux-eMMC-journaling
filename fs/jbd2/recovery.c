@@ -294,9 +294,6 @@ int jbd2_journal_recover(journal_t *journal)
 		return 0;
 	}
 
-        //wm add debug
-        printk(KERN_ALERT "enter journal recover\n");
-        //end
 	err = do_one_pass(journal, &info, PASS_SCAN);
 	if (!err)
 		err = do_one_pass(journal, &info, PASS_REVOKE);

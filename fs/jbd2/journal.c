@@ -424,6 +424,7 @@ repeat:
             char* merge_data;
             size_t space_left;
             size_t unit = sizeof(jbd2_unit_t);
+            size_t start_offset; //used to determine whether we need to do escape check
             size_t debugi = 0;
 
             //compare what are changes
@@ -455,13 +456,13 @@ repeat:
                     ccount = 1;
                 }
                     
-                printk(KERN_ALERT "set bit %u\n", i);
+                //printk(KERN_ALERT "set bit %u\n", i);
                 count++;
-                *((jbd2_unit_t*)(old_start + i*unit)) = *((jbd2_unit_t*)(new_start + i*unit)); //update snapshot
-                if (debugi < 20) {
-                    debugi++;
-                    printk(KERN_ALERT "compare %4ph\n", (void *)(old_start + i*unit));
-                }
+                //*((jbd2_unit_t*)(old_start + i*unit)) = *((jbd2_unit_t*)(new_start + i*unit)); //update snapshot
+                //if (debugi < 20) {
+                //    debugi++;
+                //    printk(KERN_ALERT "compare %4ph\n", (void *)(old_start + i*unit));
+                //}
             }
             if (ccount != 0)
                 jbd2_bitmap_set(jh_in->b_bitmap, change_start, ccount); 
@@ -513,6 +514,7 @@ repeat:
                 myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
                 transaction->cur_tmpio = my_jh;
                 transaction->t_tmpio_offset = 0;
+                start_offset = 0;
             }
             else {
                 // link to tmpio list
@@ -523,6 +525,7 @@ repeat:
                 J_ASSERT_BH(my_bh, buffer_mapped(my_bh) && my_bh->b_data != NULL);
                 my_page = virt_to_page(my_bh->b_data);
                 my_offset = offset_in_page(my_bh->b_data);
+                start_offset = transaction->t_tmpio_offset;
             }
 
             // copy bit map and changed data to merged block
@@ -536,23 +539,32 @@ repeat:
             my_start += jh_in->b_bitmap_size;
 
             // copy changed bytes
-            printk(KERN_ALERT "bitmap %32ph\n", jh_in->b_bitmap);
+            // printk(KERN_ALERT "bitmap %32ph\n", jh_in->b_bitmap);
             jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
                 J_ASSERT((i+1)*unit <= journal->j_blocksize);
-                printk(KERN_ALERT "bit %u change\n", i);
+                //printk(KERN_ALERT "bit %u change\n", i);
                 memcpy(my_start, old_start+i*unit, unit);
-                if (debugi < 20) {
-                    debugi++;
-                    printk(KERN_ALERT "copy change %4ph\n", (void *)my_start);
-                }
+                //if (debugi < 20) {
+                //    debugi++;
+                //    printk(KERN_ALERT "copy change %4ph\n", (void *)my_start);
+                //}
                 my_start += unit;
             }
 
             // update offset
             transaction->t_tmpio_offset += jh_in->b_bitmap_size + count*sizeof(jbd2_unit_t);
 
+            if (start_offset < 4 && transaction->t_tmpio_offset >= 4) {
+                // we need to do escape check
+                if (*((__be32 *)(mapped_data + my_offset)) ==
+                        cpu_to_be32(JBD2_MAGIC_NUMBER)) {
+                    transaction->cur_tmpio->b_escape = 1;
+                }
+            }
+
             kunmap_atomic(mapped_data);
             kunmap_atomic(old_data);
+
         }
 
 no_merge:

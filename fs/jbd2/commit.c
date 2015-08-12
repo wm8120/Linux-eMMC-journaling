@@ -861,7 +861,6 @@ start_journal_io:
                     header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
 
                     tagp = &mybh->b_data[sizeof(journal_header_t)];
-                    tag = (journal_block_tag_t *) tagp;
 
                     first_tag = 1;
                     space_left = mybh->b_size - sizeof(journal_header_t);
@@ -869,21 +868,23 @@ start_journal_io:
                 }
 
                 do {
+                    tag = (journal_block_tag_t *) tagp;
+
+                    // fill tag
+                    write_tag_block(tag_bytes, tag, jhi->b_blocknr);
+                    tag_flag |= JBD2_FLAG_LOG_DIFF;
+                    if (!first_tag)
+                        tag_flag |= JBD2_FLAG_SAME_UUID;
+
                     if (first_tag) {
+                        J_ASSERT( jh == jhi );
+                        if (jhi->b_escape) tag_flag |= JBD2_FLAG_ESCAPE;
                         memcpy (tagp, journal->j_uuid, 16);
                         tagp += 16;
                         space_left -= 16;
+                        first_tag = 0;
                     }
 
-                    // fill tag
-                    tag_flag |= JBD2_FLAG_LOG_DIFF;
-                    if (first_tag) first_tag = 0; 
-                    else
-                        tag_flag |= JBD2_FLAG_SAME_UUID;
-
-                    if (jhi->b_escape) tag_flag |= JBD2_FLAG_ESCAPE;
-
-                    write_tag_block(tag_bytes, tag, jhi->b_blocknr);
                     tag->t_flags = cpu_to_be16(tag_flag);
 
                     tagp += tag_bytes;
