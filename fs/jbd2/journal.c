@@ -470,7 +470,7 @@ repeat:
             kunmap_atomic(old_data);
             kunmap_atomic(mapped_data);
 
-            if (count > jbd2_change_merge_thresh(journal->j_blocksize)) {
+            if ( count == 0 || count > jbd2_change_merge_thresh(journal->j_blocksize)) {
                 goto no_merge;
             }
 
@@ -517,10 +517,10 @@ repeat:
                 start_offset = 0;
             }
             else {
+                my_jh->b_blocknr = bh_in->b_blocknr; //debug only
                 // link to tmpio list
                 myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
                 my_jh = transaction->cur_tmpio;
-                my_jh->b_blocknr = bh_in->b_blocknr; //debug only
                 my_bh = jh2bh(my_jh); 
                 J_ASSERT_BH(my_bh, buffer_mapped(my_bh) && my_bh->b_data != NULL);
                 my_page = virt_to_page(my_bh->b_data);
@@ -535,11 +535,12 @@ repeat:
             old_start = old_data + old_offset;
 
             // copy bitmap to merged block
+            my_start += transaction->t_tmpio_offset;
             memcpy(my_start, jh_in->b_bitmap, jh_in->b_bitmap_size);
             my_start += jh_in->b_bitmap_size;
 
             // copy changed bytes
-            // printk(KERN_ALERT "bitmap %32ph\n", jh_in->b_bitmap);
+            printk(KERN_ALERT "original bitmap %32ph\n", jh_in->b_bitmap);
             jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
                 J_ASSERT((i+1)*unit <= journal->j_blocksize);
                 //printk(KERN_ALERT "bit %u change\n", i);

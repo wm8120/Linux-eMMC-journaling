@@ -815,7 +815,7 @@ start_journal_io:
         //wm add debug
         blk_start_plug(&plug);
         if (commit_transaction->t_tmpio_list) {
-            printk(KERN_ALERT "myjbd2: enter merge block stage\n");
+            //printk(KERN_ALERT "myjbd2: enter merge block stage\n");
             char* tagp = NULL;
             journal_block_tag_t* tag;
             int tag_flag = 0;
@@ -871,10 +871,13 @@ start_journal_io:
                     tag = (journal_block_tag_t *) tagp;
 
                     // fill tag
+                    //debug
+                    printk(KERN_ALERT "blocknr in tag is %llu\n", jhi->b_blocknr);
                     write_tag_block(tag_bytes, tag, jhi->b_blocknr);
                     tag_flag |= JBD2_FLAG_LOG_DIFF;
-                    if (!first_tag)
-                        tag_flag |= JBD2_FLAG_SAME_UUID;
+
+                    tagp += tag_bytes;
+                    space_left -= tag_bytes;
 
                     if (first_tag) {
                         J_ASSERT( jh == jhi );
@@ -884,11 +887,11 @@ start_journal_io:
                         space_left -= 16;
                         first_tag = 0;
                     }
+                    else {
+                        tag_flag |= JBD2_FLAG_SAME_UUID;
+                    }
 
                     tag->t_flags = cpu_to_be16(tag_flag);
-
-                    tagp += tag_bytes;
-                    space_left -= tag_bytes;
 
                     if (jhi != jh) {
                         mybh = jh2bh(jhi);
@@ -911,6 +914,17 @@ start_journal_io:
                 jbd2_journal_next_log_block(journal, &blocknr);
                 jh2bh(jh)->b_blocknr = blocknr;
                 wbuf[bufs++] = jh2bh(jh);
+
+                //debug
+                if (1) {
+                    struct buffer_head* obh;
+                    //obh = __getblk(journal->j_fs_dev, blocknr, journal->j_blocksize);
+                    obh = jh2bh(jh);
+                    printk(KERN_ALERT "tid is %u\n", commit_transaction->t_tid);
+                    printk(KERN_ALERT "bitmap %32ph\n", obh->b_data);
+                    //brelse(obh);
+                }
+                
 
                 // insert jh to tmp shadow list
                 myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jh);
@@ -1058,7 +1072,7 @@ wait_for_iobuf:
             J_ASSERT_BH(mybh, atomic_read(&mybh->b_count) == 0);
             free_buffer_head(mybh);
         }
-        printk(KERN_ALERT "myjbd2: tid=%u the block after merge are %d\n", commit_transaction->t_tid, i);
+        //printk(KERN_ALERT "myjbd2: tid=%u the block after merge are %d\n", commit_transaction->t_tid, i);
         //end
 
 	if (err)

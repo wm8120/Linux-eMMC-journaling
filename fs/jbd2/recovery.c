@@ -180,6 +180,10 @@ static int jbd2_descr_block_csum_verify(journal_t *j,
 	struct jbd2_journal_block_tail *tail;
 	__u32 provided, calculated;
 
+        //wm add debug
+        if (1)
+        return 1;
+
 	if (!JBD2_HAS_INCOMPAT_FEATURE(j, JBD2_FEATURE_INCOMPAT_CSUM_V2))
 		return 1;
 
@@ -430,6 +434,10 @@ static int jbd2_block_tag_csum_verify(journal_t *j, journal_block_tag_t *tag,
 	if (!JBD2_HAS_INCOMPAT_FEATURE(j, JBD2_FEATURE_INCOMPAT_CSUM_V2))
 		return 1;
 
+        if (1) {
+            return 1; // debug only
+        }
+
 	sequence = cpu_to_be32(sequence);
 	calculated = jbd2_chksum(j, j->j_csum_seed, (__u8 *)&sequence,
 				 sizeof(sequence));
@@ -539,54 +547,6 @@ static int do_one_pass(journal_t *journal,
 		switch(blocktype) {
                 //wm add debug
                 case JBD2_TEST_BLOCK:
-                    if (pass != PASS_REPLAY) {
-                        int tags = count_tags_with_merge(journal, bh); 
-                        printk(KERN_ALERT "tid = %u, number of data blocks are %d\n",  sequence, tags);
-                        next_log_block += tags; //only one block follows test descriptor
-			wrap(journal, next_log_block);
-			put_bh(bh);
-			continue;
-                    } 
-                   // else {
-                   //     unsigned long io_block;
-                   //     unsigned long* bitmap;
-                   //     int bitmap_size;
-                   //     int bit;
-                   //     printk(KERN_ALERT "myjdb2: sequence: tid = %u\n", sequence);
-
-                   //     tagp = &bh->b_data[sizeof(journal_header_t)];
-                   //     tag = (journal_block_tag_t *) tagp;
-                   //     flags = be16_to_cpu(tag->t_flags);
-                   //     printk(KERN_ALERT "block number is %llu\n", read_tag_block(tag_bytes, tag));
-                   //     if (flags & JBD2_FLAG_LOG_DIFF) {
-                   //         printk(KERN_ALERT "It's a JBD2_FLAG_LOG_DIFF\n");
-                   //     }
-                   //     io_block = next_log_block++;
-                   //     wrap(journal, next_log_block);
-                   //     err = jread(&obh, journal, io_block);
-                   //     if (err) {
-                   //         success = err;
-                   //         printk(KERN_ALERT "myjbd2: IO error %d recovering "
-                   //                 "block %ld in log\n",
-                   //                 err, io_block);
-                   //     }
-                   //     //printk(KERN_ALERT "myjbd2: first 2 bytes are %2pb\n", (unsigned long *)(obh->b_data));
-                   //     bitmap = (unsigned long* )obh->b_data;
-                   //     bitmap_size = jbd2_journal_bitmap_array_size(journal->j_blocksize);
-                   //     jbd2_for_each_set_bit(bit, bitmap, bitmap_size ) {
-                   //         printk(KERN_ALERT "myjbd2: the change position is at %d\n", bit);
-                   //     }
-                   //     printk(KERN_ALERT "myjbd2: first 2 bytes are %2ph\n", (void *)(obh->b_data+bitmap_size));
-                   // }
-                   // 
-                   // brelse(bh);
-                   // brelse(obh);
-                    next_log_block += count_tags_with_merge(journal, bh); //only one block follows test descriptor
-                    wrap(journal, next_log_block);
-                    put_bh(bh);
-                    continue;
-
-		case JBD2_DESCRIPTOR_BLOCK:
 			/* Verify checksum first */
 			if (JBD2_HAS_INCOMPAT_FEATURE(journal,
 					JBD2_FEATURE_INCOMPAT_CSUM_V2))
@@ -596,31 +556,24 @@ static int do_one_pass(journal_t *journal,
 			    !jbd2_descr_block_csum_verify(journal,
 							  bh->b_data)) {
 				err = -EIO;
-				goto failed;
-			}
+                                //wm add debug
+                                printk(KERN_ALERT "recovery csum fail\n");
+                                goto failed;
+                        }
+                        descr_csum_size = 0; //debug only
 
 			/* If it is a valid descriptor block, replay it
 			 * in pass REPLAY; if journal_checksums enabled, then
 			 * calculate checksums in PASS_SCAN, otherwise,
 			 * just skip over the blocks it describes. */
 			if (pass != PASS_REPLAY) {
-				if (pass == PASS_SCAN &&
-				    JBD2_HAS_COMPAT_FEATURE(journal,
-					    JBD2_FEATURE_COMPAT_CHECKSUM) &&
-				    !info->end_transaction) {
-					if (calc_chksums(journal, bh,
-							&next_log_block,
-							&crc32_sum)) {
-						put_bh(bh);
-						break;
-					}
-					put_bh(bh);
-					continue;
-				}
-				next_log_block += count_tags(journal, bh);
-				wrap(journal, next_log_block);
-				put_bh(bh);
-				continue;
+			//if (1) {
+                            int tags = count_tags_with_merge(journal, bh); 
+                            printk(KERN_ALERT "tid = %u, number of data blocks are %d\n",  sequence, tags);
+                            next_log_block += tags;
+                            wrap(journal, next_log_block);
+                            put_bh(bh);
+                            continue;
 			}
 
 			/* A descriptor block: we can now write all of
@@ -628,24 +581,20 @@ static int do_one_pass(journal_t *journal,
 			 * getting done here! */
 
 			tagp = &bh->b_data[sizeof(journal_header_t)];
+start_next_tag:
 			while ((tagp - bh->b_data + tag_bytes)
 			       <= journal->j_blocksize - descr_csum_size) {
 				unsigned long io_block;
+                                char* datap;
 
 				tag = (journal_block_tag_t *) tagp;
 				flags = be16_to_cpu(tag->t_flags);
 
-                                // wm add debug
-                                if (flags & JBD2_FLAG_LOG_DIFF) {
-                                    printk(KERN_ALERT "myjbd2: skip this buffer, "
-                                            "the blocknr is %llu\n", read_tag_block(tag_bytes, tag));
-                                    goto skip_write;
-                                }
-                                //end
-
-				io_block = next_log_block++;
+                                io_block = next_log_block++;
 				wrap(journal, next_log_block);
+                                printk(KERN_ALERT "jread\n");
 				err = jread(&obh, journal, io_block);
+                                datap = obh->b_data;
 				if (err) {
 					/* Recover what we can, but
 					 * report failure at the end. */
@@ -658,288 +607,497 @@ static int do_one_pass(journal_t *journal,
 					unsigned long long blocknr;
 
 					J_ASSERT(obh != NULL);
-					blocknr = read_tag_block(tag_bytes,
-								 tag);
 
-					/* If the block has been
-					 * revoked, then we're all done
-					 * here. */
-					if (jbd2_journal_test_revoke
-					    (journal, blocknr,
-					     next_commit_ID)) {
-						brelse(obh);
-						++info->nr_revoke_hits;
-						goto skip_write;
-					}
 
-					/* Look for block corruption */
-					if (!jbd2_block_tag_csum_verify(
-						journal, tag, obh->b_data,
-						be32_to_cpu(tmp->h_sequence))) {
-						brelse(obh);
-						success = -EIO;
-						printk(KERN_ERR "JBD: Invalid "
-						       "checksum recovering "
-						       "block %llu in log\n",
-						       blocknr);
-						continue;
-					}
+                                        do {
+                                            tag = (journal_block_tag_t*) tagp;
+                                            blocknr = read_tag_block(tag_bytes, tag);
+                                            flags = be16_to_cpu(tag->t_flags);
+                                            //debug
+                                            printk(KERN_ALERT "blocknr is %llu\n", be32_to_cpu(tag->t_blocknr));
 
-					/* Find a buffer for the new
-					 * data being restored */
-					nbh = __getblk(journal->j_fs_dev,
-							blocknr,
-							journal->j_blocksize);
-					if (nbh == NULL) {
-						printk(KERN_ERR
-						       "JBD2: Out of memory "
-						       "during recovery.\n");
-						err = -ENOMEM;
-						brelse(bh);
-						brelse(obh);
-						goto failed;
-					}
+                                            /* If the block has been
+                                             * revoked, then we're all done
+                                             * here. */
+                                            if (jbd2_journal_test_revoke
+                                                    (journal, blocknr, next_commit_ID)) {
+                                                ++info->nr_revoke_hits;
+                                                if (!(flags & JBD2_FLAG_LOG_DIFF)) {
+                                                    brelse(obh);
+                                                    goto debug_skip_write;
+                                                }
+                                                else 
+                                                    goto skip_merge_write;
+                                            }
 
-					lock_buffer(nbh);
-					memcpy(nbh->b_data, obh->b_data,
-							journal->j_blocksize);
-					if (flags & JBD2_FLAG_ESCAPE) {
-						*((__be32 *)nbh->b_data) =
-						cpu_to_be32(JBD2_MAGIC_NUMBER);
-					}
+                                            /* Look for block corruption */
+                                            if (!jbd2_block_tag_csum_verify(
+                                                        journal, tag, obh->b_data,
+                                                        be32_to_cpu(tmp->h_sequence))) {
+                                                brelse(obh);
+                                                success = -EIO;
+                                                printk(KERN_ERR "JBD: Invalid "
+                                                        "checksum recovering "
+                                                        "block %llu in log\n",
+                                                        blocknr);
+                                                tagp += tag_bytes;
+                                                goto start_next_tag;
+                                            }
 
-					BUFFER_TRACE(nbh, "marking dirty");
-					set_buffer_uptodate(nbh);
-					mark_buffer_dirty(nbh);
-					BUFFER_TRACE(nbh, "marking uptodate");
-					++info->nr_replays;
-					/* ll_rw_block(WRITE, 1, &nbh); */
-					unlock_buffer(nbh);
-					brelse(obh);
-					brelse(nbh);
-				}
+                                            /* Find a buffer for the new
+                                             * data being restored */
+                                            //printk(KERN_ALERT "__getblk\n");
+                                            nbh = __getblk(journal->j_fs_dev,
+                                                    blocknr,
+                                                    journal->j_blocksize);
+                                            if (nbh == NULL) {
+                                                printk(KERN_ERR
+                                                        "JBD2: Out of memory "
+                                                        "during recovery.\n");
+                                                err = -ENOMEM;
+                                                brelse(bh);
+                                                brelse(obh);
+                                                goto failed;
+                                            }
 
-			skip_write:
-				tagp += tag_bytes;
-				if (!(flags & JBD2_FLAG_SAME_UUID))
-					tagp += 16;
+                                            if (flags & JBD2_FLAG_ESCAPE) {
+                                                *((__be32 *)obh->b_data) =
+                                                    cpu_to_be32(JBD2_MAGIC_NUMBER);
+                                            }
 
-				if (flags & JBD2_FLAG_LAST_TAG)
-					break;
-			}
+                                            lock_buffer(nbh);
+                                            // copy memory: two schemes
+                                            // debug
+                                            printk(KERN_ALERT "recovery tid is %u\n", sequence);
+                                            printk(KERN_ALERT "recovery bitmap %32ph\n", datap);
+                                            if (flags & JBD2_FLAG_LOG_DIFF) {
+                                                int i;
+                                                unsigned long *bitmap;
+                                                size_t bitmap_size = jbd2_journal_bitmap_array_size(nbh->b_size);
 
-			brelse(bh);
-			continue;
+                                                bitmap = (unsigned long*) datap;
+                                                datap += bitmap_size;
+                                                
+                                                //jbd2_for_each_set_bit(i, bitmap, bitmap_size) {
+                                                //    jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
+                                                //    if (*((jbd2_unit_t *) datap) != recovered) {
+                                                //        printk(KERN_ALERT "datap is %u, recovered data is %u\n", *((jbd2_unit_t*) datap), recovered);
+                                                //    }
+                                                //    else {
+                                                //        printk(KERN_ALERT "datap is %u, and it's same with recovered data\n", *((jbd2_unit_t*) datap));
+                                                //    }
+                                                //    datap += sizeof(jbd2_unit_t);
+                                                //}
+                                            
+                                            }
+                                            else {
+                                                memcpy(nbh->b_data, obh->b_data,
+                                                        journal->j_blocksize);
+                                            }
 
-		case JBD2_COMMIT_BLOCK:
-			/*     How to differentiate between interrupted commit
-			 *               and journal corruption ?
-			 *
-			 * {nth transaction}
-			 *        Checksum Verification Failed
-			 *			 |
-			 *		 ____________________
-			 *		|		     |
-			 * 	async_commit             sync_commit
-			 *     		|                    |
-			 *		| GO TO NEXT    "Journal Corruption"
-			 *		| TRANSACTION
-			 *		|
-			 * {(n+1)th transanction}
-			 *		|
-			 * 	 _______|______________
-			 * 	|	 	      |
-			 * Commit block found	Commit block not found
-			 *      |		      |
-			 * "Journal Corruption"       |
-			 *		 _____________|_________
-			 *     		|	           	|
-			 *	nth trans corrupt	OR   nth trans
-			 *	and (n+1)th interrupted     interrupted
-			 *	before commit block
-			 *      could reach the disk.
-			 *	(Cannot find the difference in above
-			 *	 mentioned conditions. Hence assume
-			 *	 "Interrupted Commit".)
-			 */
 
-			/* Found an expected commit block: if checksums
-			 * are present verify them in PASS_SCAN; else not
-			 * much to do other than move on to the next sequence
-			 * number. */
-			if (pass == PASS_SCAN &&
-			    JBD2_HAS_COMPAT_FEATURE(journal,
-				    JBD2_FEATURE_COMPAT_CHECKSUM)) {
-				int chksum_err, chksum_seen;
-				struct commit_header *cbh =
-					(struct commit_header *)bh->b_data;
-				unsigned found_chksum =
-					be32_to_cpu(cbh->h_chksum[0]);
+                                            BUFFER_TRACE(nbh, "marking dirty");
+                                            set_buffer_uptodate(nbh);
+                                            mark_buffer_dirty(nbh);
+                                            BUFFER_TRACE(nbh, "marking uptodate");
+                                            ++info->nr_replays;
+                                            /* ll_rw_block(WRITE, 1, &nbh); */
+                                            unlock_buffer(nbh);
+                                            //printk(KERN_ALERT "brelse\n");
+                                            brelse(nbh);
 
-				chksum_err = chksum_seen = 0;
+                                            if (!(flags & JBD2_FLAG_LOG_DIFF)) {
+                                                brelse(obh);
+                                                goto debug_skip_write;
+                                            }
+skip_merge_write:
+                                            tagp += tag_bytes;
+                                            if (!(flags & JBD2_FLAG_SAME_UUID))
+                                                tagp += 16;
+                                        } while (flags & JBD2_FLAG_LOG_DIFF && 
+                                            !(flags & JBD2_FLAG_MERGE_LAST));
 
-				if (info->end_transaction) {
-					journal->j_failed_commit =
-						info->end_transaction;
-					brelse(bh);
-					break;
-				}
+                                        //printk(KERN_ALERT "brelse obh\n");
+                                        brelse(obh);
 
-				if (crc32_sum == found_chksum &&
-				    cbh->h_chksum_type == JBD2_CRC32_CHKSUM &&
-				    cbh->h_chksum_size ==
-						JBD2_CRC32_CHKSUM_SIZE)
-				       chksum_seen = 1;
-				else if (!(cbh->h_chksum_type == 0 &&
-					     cbh->h_chksum_size == 0 &&
-					     found_chksum == 0 &&
-					     !chksum_seen))
-				/*
-				 * If fs is mounted using an old kernel and then
-				 * kernel with journal_chksum is used then we
-				 * get a situation where the journal flag has
-				 * checksum flag set but checksums are not
-				 * present i.e chksum = 0, in the individual
-				 * commit blocks.
-				 * Hence to avoid checksum failures, in this
-				 * situation, this extra check is added.
-				 */
-						chksum_err = 1;
+                                        if (flags & JBD2_FLAG_LAST_TAG)
+                                            break;
 
-				if (chksum_err) {
-					info->end_transaction = next_commit_ID;
+                                        J_ASSERT(flags & JBD2_FLAG_SAME_UUID);
+                                        J_ASSERT(tagp < bh->b_data + journal->j_blocksize);
+                                        continue;
+                                }
 
-					if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
-					   JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)){
-						journal->j_failed_commit =
-							next_commit_ID;
-						brelse(bh);
-						break;
-					}
-				}
-				crc32_sum = ~0;
-			}
-			if (pass == PASS_SCAN &&
-			    !jbd2_commit_block_csum_verify(journal,
-							   bh->b_data)) {
-				info->end_transaction = next_commit_ID;
+debug_skip_write:
+                                tagp += tag_bytes;
+                                if (!(flags & JBD2_FLAG_SAME_UUID)) {
+                                    J_ASSERT(!(flags & JBD2_FLAG_LOG_DIFF));
+                                    tagp += 16;
+                                }
 
-				if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
-				     JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)) {
-					journal->j_failed_commit =
-						next_commit_ID;
-					brelse(bh);
-					break;
-				}
-			}
-			brelse(bh);
-			next_commit_ID++;
-			continue;
+                                if (flags & JBD2_FLAG_LAST_TAG)
+                                    break;
+                        }
 
-		case JBD2_REVOKE_BLOCK:
-			/* If we aren't in the REVOKE pass, then we can
-			 * just skip over this block. */
-			if (pass != PASS_REVOKE) {
-				brelse(bh);
-				continue;
-			}
+                        brelse(bh);
+                        continue;
 
-			err = scan_revoke_records(journal, bh,
-						  next_commit_ID, info);
-			brelse(bh);
-			if (err)
-				goto failed;
-			continue;
+                case JBD2_DESCRIPTOR_BLOCK:
+                        /* Verify checksum first */
+                        if (JBD2_HAS_INCOMPAT_FEATURE(journal,
+                                    JBD2_FEATURE_INCOMPAT_CSUM_V2))
+                            descr_csum_size =
+                                sizeof(struct jbd2_journal_block_tail);
+                        if (descr_csum_size > 0 &&
+                                !jbd2_descr_block_csum_verify(journal,
+                                    bh->b_data)) {
+                            err = -EIO;
+                            //wm add debug
+                            printk(KERN_ALERT "recovery csum fail\n");
+                            goto failed;
+                        }
 
-		default:
-			jbd_debug(3, "Unrecognised magic %d, end of scan.\n",
-				  blocktype);
-			brelse(bh);
-			goto done;
-		}
-	}
+                        /* If it is a valid descriptor block, replay it
+                         * in pass REPLAY; if journal_checksums enabled, then
+                         * calculate checksums in PASS_SCAN, otherwise,
+                         * just skip over the blocks it describes. */
+                        if (pass != PASS_REPLAY) {
+                            if (pass == PASS_SCAN &&
+                                    JBD2_HAS_COMPAT_FEATURE(journal,
+                                        JBD2_FEATURE_COMPAT_CHECKSUM) &&
+                                    !info->end_transaction) {
+                                if (calc_chksums(journal, bh,
+                                            &next_log_block,
+                                            &crc32_sum)) {
+                                    put_bh(bh);
+                                    break;
+                                }
+                                put_bh(bh);
+                                continue;
+                            }
+                            next_log_block += count_tags(journal, bh);
+                            wrap(journal, next_log_block);
+                            put_bh(bh);
+                            continue;
+                        }
 
- done:
-	/*
-	 * We broke out of the log scan loop: either we came to the
-	 * known end of the log or we found an unexpected block in the
-	 * log.  If the latter happened, then we know that the "current"
-	 * transaction marks the end of the valid log.
-	 */
+                        /* A descriptor block: we can now write all of
+                         * the data blocks.  Yay, useful work is finally
+                         * getting done here! */
 
-	if (pass == PASS_SCAN) {
-		if (!info->end_transaction)
-			info->end_transaction = next_commit_ID;
-	} else {
-		/* It's really bad news if different passes end up at
-		 * different places (but possible due to IO errors). */
-		if (info->end_transaction != next_commit_ID) {
-			printk(KERN_ERR "JBD2: recovery pass %d ended at "
-				"transaction %u, expected %u\n",
-				pass, next_commit_ID, info->end_transaction);
-			if (!success)
-				success = -EIO;
-		}
-	}
+                        tagp = &bh->b_data[sizeof(journal_header_t)];
+                        while ((tagp - bh->b_data + tag_bytes)
+                                <= journal->j_blocksize - descr_csum_size) {
+                            unsigned long io_block;
 
-	return success;
+                            tag = (journal_block_tag_t *) tagp;
+                            flags = be16_to_cpu(tag->t_flags);
 
- failed:
-	return err;
+                            // wm add debug
+                            if (flags & JBD2_FLAG_LOG_DIFF) {
+                                printk(KERN_ALERT "myjbd2: skip this buffer, "
+                                        "the blocknr is %llu\n", read_tag_block(tag_bytes, tag));
+                                goto skip_write;
+                            }
+                            //end
+
+                            io_block = next_log_block++;
+                            wrap(journal, next_log_block);
+                            err = jread(&obh, journal, io_block);
+                            if (err) {
+                                /* Recover what we can, but
+                                 * report failure at the end. */
+                                success = err;
+                                printk(KERN_ERR
+                                        "JBD2: IO error %d recovering "
+                                        "block %ld in log\n",
+                                        err, io_block);
+                            } else {
+                                unsigned long long blocknr;
+
+                                J_ASSERT(obh != NULL);
+                                blocknr = read_tag_block(tag_bytes,
+                                        tag);
+
+                                /* If the block has been
+                                 * revoked, then we're all done
+                                 * here. */
+                                if (jbd2_journal_test_revoke
+                                        (journal, blocknr,
+                                         next_commit_ID)) {
+                                    brelse(obh);
+                                    ++info->nr_revoke_hits;
+                                    goto skip_write;
+                                }
+
+                                /* Look for block corruption */
+                                if (!jbd2_block_tag_csum_verify(
+                                            journal, tag, obh->b_data,
+                                            be32_to_cpu(tmp->h_sequence))) {
+                                    brelse(obh);
+                                    success = -EIO;
+                                    printk(KERN_ERR "JBD: Invalid "
+                                            "checksum recovering "
+                                            "block %llu in log\n",
+                                            blocknr);
+                                    continue;
+                                }
+
+                                /* Find a buffer for the new
+                                 * data being restored */
+                                nbh = __getblk(journal->j_fs_dev,
+                                        blocknr,
+                                        journal->j_blocksize);
+                                if (nbh == NULL) {
+                                    printk(KERN_ERR
+                                            "JBD2: Out of memory "
+                                            "during recovery.\n");
+                                    err = -ENOMEM;
+                                    brelse(bh);
+                                    brelse(obh);
+                                    goto failed;
+                                }
+
+                                lock_buffer(nbh);
+                                memcpy(nbh->b_data, obh->b_data,
+                                        journal->j_blocksize);
+                                if (flags & JBD2_FLAG_ESCAPE) {
+                                    *((__be32 *)nbh->b_data) =
+                                        cpu_to_be32(JBD2_MAGIC_NUMBER);
+                                }
+
+                                BUFFER_TRACE(nbh, "marking dirty");
+                                set_buffer_uptodate(nbh);
+                                mark_buffer_dirty(nbh);
+                                BUFFER_TRACE(nbh, "marking uptodate");
+                                ++info->nr_replays;
+                                /* ll_rw_block(WRITE, 1, &nbh); */
+                                unlock_buffer(nbh);
+                                brelse(obh);
+                                brelse(nbh);
+                            }
+
+skip_write:
+                            tagp += tag_bytes;
+                            if (!(flags & JBD2_FLAG_SAME_UUID))
+                                tagp += 16;
+
+                            if (flags & JBD2_FLAG_LAST_TAG)
+                                break;
+                        }
+
+                        brelse(bh);
+                        continue;
+
+                case JBD2_COMMIT_BLOCK:
+                        /*     How to differentiate between interrupted commit
+                         *               and journal corruption ?
+                         *
+                         * {nth transaction}
+                         *        Checksum Verification Failed
+                         *			 |
+                         *		 ____________________
+                         *		|		     |
+                         * 	async_commit             sync_commit
+                         *     		|                    |
+                         *		| GO TO NEXT    "Journal Corruption"
+                         *		| TRANSACTION
+                         *		|
+                         * {(n+1)th transanction}
+                         *		|
+                         * 	 _______|______________
+                         * 	|	 	      |
+                         * Commit block found	Commit block not found
+                         *      |		      |
+                         * "Journal Corruption"       |
+                         *		 _____________|_________
+                         *     		|	           	|
+                         *	nth trans corrupt	OR   nth trans
+                         *	and (n+1)th interrupted     interrupted
+                         *	before commit block
+                         *      could reach the disk.
+                         *	(Cannot find the difference in above
+                         *	 mentioned conditions. Hence assume
+                         *	 "Interrupted Commit".)
+                         */
+
+                        /* Found an expected commit block: if checksums
+                         * are present verify them in PASS_SCAN; else not
+                         * much to do other than move on to the next sequence
+                         * number. */
+                        if (pass == PASS_SCAN &&
+                                JBD2_HAS_COMPAT_FEATURE(journal,
+                                    JBD2_FEATURE_COMPAT_CHECKSUM)) {
+                            int chksum_err, chksum_seen;
+                            struct commit_header *cbh =
+                                (struct commit_header *)bh->b_data;
+                            unsigned found_chksum =
+                                be32_to_cpu(cbh->h_chksum[0]);
+
+                            chksum_err = chksum_seen = 0;
+
+                            if (info->end_transaction) {
+                                journal->j_failed_commit =
+                                    info->end_transaction;
+                                brelse(bh);
+                                break;
+                            }
+
+                            if (crc32_sum == found_chksum &&
+                                    cbh->h_chksum_type == JBD2_CRC32_CHKSUM &&
+                                    cbh->h_chksum_size ==
+                                    JBD2_CRC32_CHKSUM_SIZE)
+                                chksum_seen = 1;
+                            else if (!(cbh->h_chksum_type == 0 &&
+                                        cbh->h_chksum_size == 0 &&
+                                        found_chksum == 0 &&
+                                        !chksum_seen))
+                                /*
+                                 * If fs is mounted using an old kernel and then
+                                 * kernel with journal_chksum is used then we
+                                 * get a situation where the journal flag has
+                                 * checksum flag set but checksums are not
+                                 * present i.e chksum = 0, in the individual
+                                 * commit blocks.
+                                 * Hence to avoid checksum failures, in this
+                                 * situation, this extra check is added.
+                                 */
+                                chksum_err = 1;
+
+                            if (chksum_err) {
+                                info->end_transaction = next_commit_ID;
+
+                                if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
+                                            JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)){
+                                    journal->j_failed_commit =
+                                        next_commit_ID;
+                                    brelse(bh);
+                                    break;
+                                }
+                            }
+                            crc32_sum = ~0;
+                        }
+                        if (pass == PASS_SCAN &&
+                                !jbd2_commit_block_csum_verify(journal,
+                                    bh->b_data)) {
+                            info->end_transaction = next_commit_ID;
+
+                            if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
+                                        JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)) {
+                                journal->j_failed_commit =
+                                    next_commit_ID;
+                                brelse(bh);
+                                break;
+                            }
+                        }
+                        brelse(bh);
+                        next_commit_ID++;
+                        continue;
+
+                case JBD2_REVOKE_BLOCK:
+                        /* If we aren't in the REVOKE pass, then we can
+                         * just skip over this block. */
+                        if (pass != PASS_REVOKE) {
+                            brelse(bh);
+                            continue;
+                        }
+
+                        err = scan_revoke_records(journal, bh,
+                                next_commit_ID, info);
+                        brelse(bh);
+                        if (err)
+                            goto failed;
+                        continue;
+
+                default:
+                        jbd_debug(3, "Unrecognised magic %d, end of scan.\n",
+                                blocktype);
+                        brelse(bh);
+                        goto done;
+                }
+        }
+
+done:
+        /*
+         * We broke out of the log scan loop: either we came to the
+         * known end of the log or we found an unexpected block in the
+         * log.  If the latter happened, then we know that the "current"
+         * transaction marks the end of the valid log.
+         */
+
+        if (pass == PASS_SCAN) {
+            if (!info->end_transaction)
+                info->end_transaction = next_commit_ID;
+        } else {
+            /* It's really bad news if different passes end up at
+             * different places (but possible due to IO errors). */
+            if (info->end_transaction != next_commit_ID) {
+                printk(KERN_ERR "JBD2: recovery pass %d ended at "
+                        "transaction %u, expected %u\n",
+                        pass, next_commit_ID, info->end_transaction);
+                if (!success)
+                    success = -EIO;
+            }
+        }
+
+        return success;
+
+failed:
+        return err;
 }
 
 static int jbd2_revoke_block_csum_verify(journal_t *j,
-					 void *buf)
+        void *buf)
 {
-	struct jbd2_journal_revoke_tail *tail;
-	__u32 provided, calculated;
+    struct jbd2_journal_revoke_tail *tail;
+    __u32 provided, calculated;
 
-	if (!JBD2_HAS_INCOMPAT_FEATURE(j, JBD2_FEATURE_INCOMPAT_CSUM_V2))
-		return 1;
+    if (!JBD2_HAS_INCOMPAT_FEATURE(j, JBD2_FEATURE_INCOMPAT_CSUM_V2))
+        return 1;
 
-	tail = (struct jbd2_journal_revoke_tail *)(buf + j->j_blocksize -
-			sizeof(struct jbd2_journal_revoke_tail));
-	provided = tail->r_checksum;
-	tail->r_checksum = 0;
-	calculated = jbd2_chksum(j, j->j_csum_seed, buf, j->j_blocksize);
-	tail->r_checksum = provided;
+    tail = (struct jbd2_journal_revoke_tail *)(buf + j->j_blocksize -
+            sizeof(struct jbd2_journal_revoke_tail));
+    provided = tail->r_checksum;
+    tail->r_checksum = 0;
+    calculated = jbd2_chksum(j, j->j_csum_seed, buf, j->j_blocksize);
+    tail->r_checksum = provided;
 
-	provided = be32_to_cpu(provided);
-	return provided == calculated;
+    provided = be32_to_cpu(provided);
+    return provided == calculated;
 }
 
 /* Scan a revoke record, marking all blocks mentioned as revoked. */
 
 static int scan_revoke_records(journal_t *journal, struct buffer_head *bh,
-			       tid_t sequence, struct recovery_info *info)
+        tid_t sequence, struct recovery_info *info)
 {
-	jbd2_journal_revoke_header_t *header;
-	int offset, max;
-	int record_len = 4;
+    jbd2_journal_revoke_header_t *header;
+    int offset, max;
+    int record_len = 4;
 
-	header = (jbd2_journal_revoke_header_t *) bh->b_data;
-	offset = sizeof(jbd2_journal_revoke_header_t);
-	max = be32_to_cpu(header->r_count);
+    header = (jbd2_journal_revoke_header_t *) bh->b_data;
+    offset = sizeof(jbd2_journal_revoke_header_t);
+    max = be32_to_cpu(header->r_count);
 
-	if (!jbd2_revoke_block_csum_verify(journal, header))
-		return -EINVAL;
+    if (!jbd2_revoke_block_csum_verify(journal, header))
+        return -EINVAL;
 
-	if (JBD2_HAS_INCOMPAT_FEATURE(journal, JBD2_FEATURE_INCOMPAT_64BIT))
-		record_len = 8;
+    if (JBD2_HAS_INCOMPAT_FEATURE(journal, JBD2_FEATURE_INCOMPAT_64BIT))
+        record_len = 8;
 
-	while (offset + record_len <= max) {
-		unsigned long long blocknr;
-		int err;
+    while (offset + record_len <= max) {
+        unsigned long long blocknr;
+        int err;
 
-		if (record_len == 4)
-			blocknr = be32_to_cpu(* ((__be32 *) (bh->b_data+offset)));
-		else
-			blocknr = be64_to_cpu(* ((__be64 *) (bh->b_data+offset)));
-		offset += record_len;
-		err = jbd2_journal_set_revoke(journal, blocknr, sequence);
-		if (err)
-			return err;
-		++info->nr_revokes;
-	}
-	return 0;
+        if (record_len == 4)
+            blocknr = be32_to_cpu(* ((__be32 *) (bh->b_data+offset)));
+        else
+            blocknr = be64_to_cpu(* ((__be64 *) (bh->b_data+offset)));
+        offset += record_len;
+        err = jbd2_journal_set_revoke(journal, blocknr, sequence);
+        if (err)
+            return err;
+        ++info->nr_revokes;
+    }
+    return 0;
 }
