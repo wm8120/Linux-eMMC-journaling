@@ -871,8 +871,6 @@ start_journal_io:
                     tag = (journal_block_tag_t *) tagp;
 
                     // fill tag
-                    //debug
-                    printk(KERN_ALERT "blocknr in tag is %llu\n", jhi->b_blocknr);
                     write_tag_block(tag_bytes, tag, jhi->b_blocknr);
                     tag_flag |= JBD2_FLAG_LOG_DIFF;
 
@@ -916,14 +914,14 @@ start_journal_io:
                 wbuf[bufs++] = jh2bh(jh);
 
                 //debug
-                if (1) {
-                    struct buffer_head* obh;
-                    //obh = __getblk(journal->j_fs_dev, blocknr, journal->j_blocksize);
-                    obh = jh2bh(jh);
-                    printk(KERN_ALERT "tid is %u\n", commit_transaction->t_tid);
-                    printk(KERN_ALERT "bitmap %32ph\n", obh->b_data);
-                    //brelse(obh);
-                }
+                //if (1) {
+                //    struct buffer_head* obh;
+                //    //obh = __getblk(journal->j_fs_dev, blocknr, journal->j_blocksize);
+                //    obh = jh2bh(jh);
+                //    //printk(KERN_ALERT "tid is %u\n", commit_transaction->t_tid);
+                //    //printk(KERN_ALERT "bitmap %32ph\n", obh->b_data);
+                //    //brelse(obh);
+                //}
                 
 
                 // insert jh to tmp shadow list

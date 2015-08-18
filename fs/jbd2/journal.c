@@ -425,7 +425,6 @@ repeat:
             size_t space_left;
             size_t unit = sizeof(jbd2_unit_t);
             size_t start_offset; //used to determine whether we need to do escape check
-            size_t debugi = 0;
 
             //compare what are changes
             mapped_data = kmap_atomic(new_page);
@@ -441,6 +440,8 @@ repeat:
                 void* copyto = (void*)(old_start+i*unit);
                 J_ASSERT((i+1)*unit <= jh2bh(jh_in)->b_size);
                 if ( *((jbd2_unit_t*) copyto) == *((jbd2_unit_t*) copyfrom) ) continue;
+                //debug
+                printk("old data: %4ph, new data: %4ph\n", copyto, copyfrom);
                 if (ccount == 0) {
                     change_start = i;
                     ccount = 1;
@@ -466,7 +467,8 @@ repeat:
             }
             if (ccount != 0)
                 jbd2_bitmap_set(jh_in->b_bitmap, change_start, ccount); 
-            debugi = 0;
+
+            memcpy(old_start, new_start, bh_in->b_size); //update snapshot
             kunmap_atomic(old_data);
             kunmap_atomic(mapped_data);
 
@@ -540,11 +542,11 @@ repeat:
             my_start += jh_in->b_bitmap_size;
 
             // copy changed bytes
-            printk(KERN_ALERT "original bitmap %32ph\n", jh_in->b_bitmap);
+            // printk(KERN_ALERT "original bitmap %32ph\n", jh_in->b_bitmap);
             jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
                 J_ASSERT((i+1)*unit <= journal->j_blocksize);
-                //printk(KERN_ALERT "bit %u change\n", i);
                 memcpy(my_start, old_start+i*unit, unit);
+                // printk(KERN_ALERT "copy change %4ph\n", (void *)my_start);
                 //if (debugi < 20) {
                 //    debugi++;
                 //    printk(KERN_ALERT "copy change %4ph\n", (void *)my_start);

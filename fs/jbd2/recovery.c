@@ -567,9 +567,7 @@ static int do_one_pass(journal_t *journal,
 			 * calculate checksums in PASS_SCAN, otherwise,
 			 * just skip over the blocks it describes. */
 			if (pass != PASS_REPLAY) {
-			//if (1) {
                             int tags = count_tags_with_merge(journal, bh); 
-                            printk(KERN_ALERT "tid = %u, number of data blocks are %d\n",  sequence, tags);
                             next_log_block += tags;
                             wrap(journal, next_log_block);
                             put_bh(bh);
@@ -592,7 +590,6 @@ start_next_tag:
 
                                 io_block = next_log_block++;
 				wrap(journal, next_log_block);
-                                printk(KERN_ALERT "jread\n");
 				err = jread(&obh, journal, io_block);
                                 datap = obh->b_data;
 				if (err) {
@@ -613,8 +610,6 @@ start_next_tag:
                                             tag = (journal_block_tag_t*) tagp;
                                             blocknr = read_tag_block(tag_bytes, tag);
                                             flags = be16_to_cpu(tag->t_flags);
-                                            //debug
-                                            printk(KERN_ALERT "blocknr is %llu\n", be32_to_cpu(tag->t_blocknr));
 
                                             /* If the block has been
                                              * revoked, then we're all done
@@ -668,8 +663,8 @@ start_next_tag:
                                             lock_buffer(nbh);
                                             // copy memory: two schemes
                                             // debug
-                                            printk(KERN_ALERT "recovery tid is %u\n", sequence);
-                                            printk(KERN_ALERT "recovery bitmap %32ph\n", datap);
+                                            //printk(KERN_ALERT "recovery tid is %u\n", sequence);
+                                            //printk(KERN_ALERT "recovery bitmap %32ph\n", datap);
                                             if (flags & JBD2_FLAG_LOG_DIFF) {
                                                 int i;
                                                 unsigned long *bitmap;
@@ -678,16 +673,20 @@ start_next_tag:
                                                 bitmap = (unsigned long*) datap;
                                                 datap += bitmap_size;
                                                 
-                                                //jbd2_for_each_set_bit(i, bitmap, bitmap_size) {
-                                                //    jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
-                                                //    if (*((jbd2_unit_t *) datap) != recovered) {
-                                                //        printk(KERN_ALERT "datap is %u, recovered data is %u\n", *((jbd2_unit_t*) datap), recovered);
-                                                //    }
-                                                //    else {
-                                                //        printk(KERN_ALERT "datap is %u, and it's same with recovered data\n", *((jbd2_unit_t*) datap));
-                                                //    }
-                                                //    datap += sizeof(jbd2_unit_t);
-                                                //}
+                                                //printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
+                                                //printk(KERN_ALERT "bitmap size is %u\n", bitmap_size);
+                                                jbd2_for_each_set_bit(i, bitmap, bitmap_size*8) {
+                                                    J_ASSERT(datap - obh->b_data + sizeof(jbd2_unit_t) <= obh->b_size);
+                                                    J_ASSERT((i+1)*sizeof(jbd2_unit_t) <= nbh->b_size);
+                                                    jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
+                                                    if (*((jbd2_unit_t *) datap) != recovered) {
+                                                        printk(KERN_ALERT "datap is %4ph, recovered data is %4ph\n", ((jbd2_unit_t*) datap), &recovered);
+                                                    }
+                                                    else {
+                                                        printk(KERN_ALERT "datap is %4ph, and it's same with recovered data\n", ((jbd2_unit_t*) datap));
+                                                    }
+                                                    datap += sizeof(jbd2_unit_t);
+                                                }
                                             
                                             }
                                             else {
