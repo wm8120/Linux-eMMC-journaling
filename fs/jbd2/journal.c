@@ -441,7 +441,7 @@ repeat:
                 J_ASSERT((i+1)*unit <= jh2bh(jh_in)->b_size);
                 if ( *((jbd2_unit_t*) copyto) == *((jbd2_unit_t*) copyfrom) ) continue;
                 //debug
-                printk("old data: %4ph, new data: %4ph\n", copyto, copyfrom);
+                // printk("old data: %4ph, new data: %4ph\n", copyto, copyfrom);
                 if (ccount == 0) {
                     change_start = i;
                     ccount = 1;
@@ -537,7 +537,7 @@ repeat:
             old_start = old_data + old_offset;
 
             // copy bitmap to merged block
-            my_start += transaction->t_tmpio_offset;
+            my_start += start_offset;
             memcpy(my_start, jh_in->b_bitmap, jh_in->b_bitmap_size);
             my_start += jh_in->b_bitmap_size;
 
@@ -554,6 +554,8 @@ repeat:
                 my_start += unit;
             }
 
+            //clean up bitmap
+            memset((void*)jh_in->b_bitmap, 0, jh_in->b_bitmap_size);
             // update offset
             transaction->t_tmpio_offset += jh_in->b_bitmap_size + count*sizeof(jbd2_unit_t);
 

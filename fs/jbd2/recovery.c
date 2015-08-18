@@ -567,6 +567,7 @@ static int do_one_pass(journal_t *journal,
 			 * calculate checksums in PASS_SCAN, otherwise,
 			 * just skip over the blocks it describes. */
 			if (pass != PASS_REPLAY) {
+                        //if (1) {
                             int tags = count_tags_with_merge(journal, bh); 
                             next_log_block += tags;
                             wrap(journal, next_log_block);
@@ -673,8 +674,8 @@ start_next_tag:
                                                 bitmap = (unsigned long*) datap;
                                                 datap += bitmap_size;
                                                 
-                                                //printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
-                                                //printk(KERN_ALERT "bitmap size is %u\n", bitmap_size);
+                                                printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
+                                                printk(KERN_ALERT "bitmap size is %u\n", bitmap_size);
                                                 jbd2_for_each_set_bit(i, bitmap, bitmap_size*8) {
                                                     J_ASSERT(datap - obh->b_data + sizeof(jbd2_unit_t) <= obh->b_size);
                                                     J_ASSERT((i+1)*sizeof(jbd2_unit_t) <= nbh->b_size);
