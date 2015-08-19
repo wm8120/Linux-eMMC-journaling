@@ -674,18 +674,18 @@ start_next_tag:
                                                 bitmap = (unsigned long*) datap;
                                                 datap += bitmap_size;
                                                 
-                                                printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
-                                                printk(KERN_ALERT "bitmap size is %u\n", bitmap_size);
+                                                //printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
                                                 jbd2_for_each_set_bit(i, bitmap, bitmap_size*8) {
                                                     J_ASSERT(datap - obh->b_data + sizeof(jbd2_unit_t) <= obh->b_size);
                                                     J_ASSERT((i+1)*sizeof(jbd2_unit_t) <= nbh->b_size);
                                                     jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
-                                                    if (*((jbd2_unit_t *) datap) != recovered) {
-                                                        printk(KERN_ALERT "datap is %4ph, recovered data is %4ph\n", ((jbd2_unit_t*) datap), &recovered);
-                                                    }
-                                                    else {
-                                                        printk(KERN_ALERT "datap is %4ph, and it's same with recovered data\n", ((jbd2_unit_t*) datap));
-                                                    }
+                                                    BUG_ON(*((jbd2_unit_t *) datap) != recovered);
+                                                    //if (*((jbd2_unit_t *) datap) != recovered) {
+                                                    //    //printk(KERN_ALERT "datap is %4ph, recovered data is %4ph\n", ((jbd2_unit_t*) datap), &recovered);
+                                                    //}
+                                                    //else {
+                                                    //    printk(KERN_ALERT "datap is %4ph, and it's same with recovered data\n", ((jbd2_unit_t*) datap));
+                                                    //}
                                                     datap += sizeof(jbd2_unit_t);
                                                 }
                                             

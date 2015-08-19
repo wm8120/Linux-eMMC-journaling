@@ -818,7 +818,7 @@ start_journal_io:
             //printk(KERN_ALERT "myjbd2: enter merge block stage\n");
             char* tagp = NULL;
             journal_block_tag_t* tag;
-            int tag_flag = 0;
+            int tag_flag;
             unsigned long long blocknr;
             int err;
             int space_left = 0;
@@ -869,6 +869,7 @@ start_journal_io:
 
                 do {
                     tag = (journal_block_tag_t *) tagp;
+                    tag_flag = 0;
 
                     // fill tag
                     write_tag_block(tag_bytes, tag, jhi->b_blocknr);
