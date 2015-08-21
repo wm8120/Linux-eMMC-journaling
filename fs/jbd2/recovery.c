@@ -566,8 +566,8 @@ static int do_one_pass(journal_t *journal,
 			 * in pass REPLAY; if journal_checksums enabled, then
 			 * calculate checksums in PASS_SCAN, otherwise,
 			 * just skip over the blocks it describes. */
-			//if (pass != PASS_REPLAY) {
-                        if (1) {
+			if (pass != PASS_REPLAY) {
+                        //if (1) {
                             int tags = count_tags_with_merge(journal, bh); 
                             next_log_block += tags;
                             wrap(journal, next_log_block);
@@ -681,9 +681,8 @@ start_next_tag:
                                                     jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
                                                     BUG_ON(*((jbd2_unit_t *) datap) != recovered);
                                                     //if (*((jbd2_unit_t *) datap) != recovered) {
-                                                    //    //printk(KERN_ALERT "datap is %4ph, recovered data is %4ph\n", ((jbd2_unit_t*) datap), &recovered);
-                                                    //}
-                                                    //else {
+                                                    //    printk(KERN_ALERT "datap is %4ph, recovered data is %4ph\n", ((jbd2_unit_t*) datap), &recovered);
+                                                    //} else {
                                                     //    printk(KERN_ALERT "datap is %4ph, and it's same with recovered data\n", ((jbd2_unit_t*) datap));
                                                     //}
                                                     datap += sizeof(jbd2_unit_t);
