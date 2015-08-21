@@ -342,7 +342,6 @@ int jbd2_journal_write_metadata_buffer(transaction_t *transaction,
         //wm add
 	struct buffer_head *my_bh;
 	struct journal_head *my_jh;
-        int no_frozen_data = 1;
         //end
 	struct page *new_page;
 	unsigned int new_offset;
@@ -400,7 +399,6 @@ repeat:
 		new_page = virt_to_page(jh_in->b_frozen_data);
 		new_offset = offset_in_page(jh_in->b_frozen_data);
 	} else {
-                no_frozen_data = 1;
 		new_page = jh2bh(jh_in)->b_page;
 		new_offset = offset_in_page(jh2bh(jh_in)->b_data);
 	}
@@ -408,9 +406,11 @@ repeat:
         //wm add
         J_ASSERT_JH(jh_in, jh_in->b_new_create || (jh_in->snapshot != NULL && jh_in->b_bitmap != NULL));
         if (!jh_in->b_new_create) {
+        //if (0) {
             struct page* old_page;
             unsigned int old_offset;
             char* old_data;
+            char* my_data;
             unsigned int count=0;
             unsigned int ccount = 0; //how many continued bits are set
             int change_start = 0;
@@ -468,11 +468,13 @@ repeat:
             if (ccount != 0)
                 jbd2_bitmap_set(jh_in->b_bitmap, change_start, ccount); 
 
+            //printk(KERN_ALERT "1 bitmap %32ph\tcount=%u\n", jh_in->b_bitmap, count);
             memcpy(old_start, new_start, bh_in->b_size); //update snapshot
             kunmap_atomic(old_data);
             kunmap_atomic(mapped_data);
 
             if ( count == 0 || count > jbd2_change_merge_thresh(journal->j_blocksize)) {
+                memset(jh_in->b_bitmap, 0, jh_in->b_bitmap_size);
                 goto no_merge;
             }
 
@@ -496,7 +498,7 @@ repeat:
                 jbd_lock_bh_state(bh_in);
 
                 // because we drop off the lock, so it maybe the jh is already copied out for frozen data
-                if (jh_in->b_frozen_data && no_frozen_data ) {
+                if (jh_in->b_frozen_data) {
                     done_copy_out = 1;
                     new_page = virt_to_page(jh_in->b_frozen_data);
                     new_offset = offset_in_page(jh_in->b_frozen_data);
@@ -531,8 +533,8 @@ repeat:
             }
 
             // copy bit map and changed data to merged block
-            mapped_data = kmap_atomic(my_page);
-            my_start = mapped_data + my_offset;
+            my_data = kmap_atomic(my_page);
+            my_start = my_data + my_offset;
             old_data = kmap_atomic(old_page);
             old_start = old_data + old_offset;
 
@@ -542,34 +544,37 @@ repeat:
             my_start += jh_in->b_bitmap_size;
 
             // copy changed bytes
-            // printk(KERN_ALERT "original bitmap %32ph\n", jh_in->b_bitmap);
+            //ccount = 0;
+            //jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
+            //    ccount++;
+            //}
+            //printk(KERN_ALERT "2 bitmap %32ph\tcount=%u\n", jh_in->b_bitmap, ccount);
+            //J_ASSERT(ccount == count);
             jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
-                J_ASSERT((i+1)*unit <= journal->j_blocksize);
+                J_ASSERT((i+1)*unit <= jsize);
+                J_ASSERT(my_start + unit <= my_data + my_offset + jsize);
                 memcpy(my_start, old_start+i*unit, unit);
                 // printk(KERN_ALERT "copy change %4ph\n", (void *)my_start);
-                //if (debugi < 20) {
-                //    debugi++;
-                //    printk(KERN_ALERT "copy change %4ph\n", (void *)my_start);
-                //}
                 my_start += unit;
             }
 
             //clean up bitmap
             memset((void*)jh_in->b_bitmap, 0, jh_in->b_bitmap_size);
             // update offset
-            transaction->t_tmpio_offset += jh_in->b_bitmap_size + count*sizeof(jbd2_unit_t);
+            transaction->t_tmpio_offset += (jh_in->b_bitmap_size+count*unit);
+            J_ASSERT(transaction->t_tmpio_offset <= journal->j_blocksize);
 
-            if (start_offset < 4 && transaction->t_tmpio_offset >= 4) {
+            if (start_offset < 5 && transaction->t_tmpio_offset >= 4) {
                 // we need to do escape check
-                if (*((__be32 *)(mapped_data + my_offset)) ==
+                if (*((__be32 *)(my_data + my_offset)) ==
                         cpu_to_be32(JBD2_MAGIC_NUMBER)) {
                     transaction->cur_tmpio->b_escape = 1;
+	            *((unsigned int *)(my_data + my_offset)) = 0;
                 }
             }
 
-            kunmap_atomic(mapped_data);
+            kunmap_atomic(my_data);
             kunmap_atomic(old_data);
-
         }
 
 no_merge:
@@ -612,6 +617,8 @@ no_merge:
 		jbd_lock_bh_state(bh_in);
 		if (jh_in->b_frozen_data) {
 			jbd2_free(tmp, bh_in->b_size);
+                        //wm debug
+                        printk(KERN_ALERT "ALERT: goto repeat\n");
 			goto repeat;
 		}
 

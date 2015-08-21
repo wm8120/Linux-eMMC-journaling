@@ -566,8 +566,8 @@ static int do_one_pass(journal_t *journal,
 			 * in pass REPLAY; if journal_checksums enabled, then
 			 * calculate checksums in PASS_SCAN, otherwise,
 			 * just skip over the blocks it describes. */
-			if (pass != PASS_REPLAY) {
-                        //if (1) {
+			//if (pass != PASS_REPLAY) {
+                        if (1) {
                             int tags = count_tags_with_merge(journal, bh); 
                             next_log_block += tags;
                             wrap(journal, next_log_block);

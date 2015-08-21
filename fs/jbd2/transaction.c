@@ -656,11 +656,14 @@ do_get_write_access(handle_t *handle, struct journal_head *jh,
 	journal_t *journal;
 	int error;
 	char *frozen_buffer = NULL;
-        // wm add
-        char *snapshot = NULL;
-        //end 
 	int need_copy = 0;
 	unsigned long start_lock, time_lock;
+
+        //wm add
+        char *snapshot = NULL;
+        unsigned long* bitmap = NULL;
+        size_t bitmap_size = jbd2_journal_bitmap_array_size(jh2bh(jh)->b_size);
+        //end
 
 	if (is_handle_aborted(handle))
 		return -EROFS;
@@ -725,6 +728,71 @@ repeat:
 	}
 
 	unlock_buffer(bh);
+
+        // wm add
+        if (jh->snapshot == NULL) {
+            if (snapshot == NULL) {
+                jbd_unlock_bh_state(bh);
+                JBUFFER_TRACE(jh, "allocate memory for buffer snapshot");
+                snapshot = jbd2_alloc(jh2bh(jh)->b_size, GFP_NOFS);
+
+                if (!snapshot) {
+                    printk(KERN_EMERG
+                            "%s: OOM for jh snapshot\n",
+                            __func__);
+                    JBUFFER_TRACE(jh, "oom!");
+                    error = -ENOMEM;
+                    jbd_lock_bh_state(bh);
+                    goto done;
+                }
+
+                //allocate bitmap space 
+                J_ASSERT_JH(jh, jh->b_bitmap == NULL);
+                JBUFFER_TRACE(jh, "allocate memory for buffer bitmap");
+                bitmap = jbd2_alloc(bitmap_size, GFP_NOFS);
+
+                if (!bitmap) {
+                    printk(KERN_EMERG
+                            "%s: OOM for jh bitmap\n",
+                            __func__);
+                    JBUFFER_TRACE(jh, "oom!");
+                    error = -ENOMEM;
+                    jbd_lock_bh_state(bh);
+                    goto done;
+                }
+
+                goto repeat;
+            }
+            else {
+                //copy buffer content
+                struct page *page;
+                int offset;
+                char *source;
+
+                jh->snapshot = snapshot;
+                jh->b_new_create = 0;
+                snapshot = NULL;
+
+                page = jh2bh(jh)->b_page;
+                offset = offset_in_page(jh2bh(jh)->b_data);
+                source = kmap_atomic(page);
+                memcpy(jh->snapshot, source+offset, jh2bh(jh)->b_size);
+                kunmap_atomic(source);
+
+                J_ASSERT(bitmap != NULL);
+                jh->b_bitmap = bitmap;
+                jh->b_bitmap_size = bitmap_size;
+                memset((void*)jh->b_bitmap, 0, bitmap_size);
+                bitmap = NULL;
+            }
+        }
+
+        if (unlikely(jh->snapshot != NULL && snapshot != NULL)) {
+            jbd2_free(snapshot, bh->b_size);
+            J_ASSERT(bitmap != NULL);
+            jbd2_free(bitmap, bitmap_size);
+        }
+        //end
 
 	error = -EROFS;
 	if (is_handle_aborted(handle)) {
@@ -849,50 +917,6 @@ repeat:
 		__jbd2_journal_file_buffer(jh, transaction, BJ_Reserved);
 		spin_unlock(&journal->j_list_lock);
 	}
-
-        // wm add
-        if (jh->snapshot == NULL) {
-	    jbd_unlock_bh_state(bh);
-	    JBUFFER_TRACE(jh, "allocate memory for buffer snapshot");
-            snapshot = jbd2_alloc(jh2bh(jh)->b_size, GFP_NOFS);
-            jbd_lock_bh_state(bh);
-            if (!snapshot) {
-                printk(KERN_EMERG
-                        "%s: OOM for jh snapshot\n",
-                        __func__);
-                JBUFFER_TRACE(jh, "oom!");
-                error = -ENOMEM;
-                goto done;
-            }
-            else {
-                //copy buffer content
-                struct page *page;
-                int offset;
-                char *source;
-
-                jh->snapshot = snapshot;
-                jh->b_new_create = 0;
-                snapshot = NULL;
-
-                page = jh2bh(jh)->b_page;
-                offset = offset_in_page(jh2bh(jh)->b_data);
-                source = kmap_atomic(page);
-                memcpy(jh->snapshot, source+offset, jh2bh(jh)->b_size);
-                kunmap_atomic(source);
-            }
-        }
-
-        if (jh->b_bitmap == NULL) {
-            unsigned long* bitmap;
-            size_t bitmap_size = jbd2_journal_bitmap_array_size(jh2bh(jh)->b_size);
-            jbd_unlock_bh_state(bh);
-	    JBUFFER_TRACE(jh, "allocate memory for buffer bitmap");
-            bitmap = jbd2_alloc(bitmap_size, GFP_NOFS);
-            jbd_lock_bh_state(bh);
-            jh->b_bitmap = bitmap;
-            jh->b_bitmap_size = bitmap_size;
-            memset((void*)jh->b_bitmap, 0, bitmap_size);
-        }
 
 done:
         if (need_copy) {
