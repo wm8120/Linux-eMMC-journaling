@@ -406,7 +406,6 @@ repeat:
         //wm add
         J_ASSERT_JH(jh_in, jh_in->b_new_create || (jh_in->snapshot != NULL && jh_in->b_bitmap != NULL));
         if (!jh_in->b_new_create) {
-        //if (0) {
             struct page* old_page;
             unsigned int old_offset;
             char* old_data;
@@ -508,7 +507,7 @@ repeat:
 
                 set_bh_page(my_bh, my_page, my_offset);
                 my_jh->b_transaction = NULL;
-                my_jh->b_blocknr = jh2bh(jh_in)->b_blocknr; //debug only
+                my_bh->b_blocknr = bh_in->b_blocknr;
                 my_bh->b_size = jsize;
                 my_bh->b_bdev = transaction->t_journal->j_dev;
                 set_buffer_mapped(my_bh);
@@ -521,7 +520,9 @@ repeat:
                 start_offset = 0;
             }
             else {
-                my_jh->b_blocknr = bh_in->b_blocknr; //debug only
+                my_bh->b_blocknr = bh_in->b_blocknr;
+                my_bh->b_size = jsize;
+                my_bh->b_data = NULL;
                 // link to tmpio list
                 myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
                 my_jh = transaction->cur_tmpio;
@@ -575,9 +576,65 @@ repeat:
 
             kunmap_atomic(my_data);
             kunmap_atomic(old_data);
-        }
+        } else {
+            char* d_copy = NULL;
+            char* new_start = NULL;
+            char* d_start = NULL;
+            char* d_mapped_data = NULL;
+            struct page* d_page;
+            unsigned int d_offset;
 
 no_merge:
+            jbd_unlock_bh_state(bh_in);
+            d_copy = jbd2_alloc(bh_in->b_size, GFP_NOFS);
+            if (!d_copy) {
+                jbd2_journal_put_journal_head(new_jh);
+                jbd2_journal_put_journal_head(my_jh);
+                __brelse(my_bh);
+                J_ASSERT_BH(my_bh, atomic_read(&my_bh->b_count) == 0);
+                free_buffer_head(my_bh);
+                return -ENOMEM;
+            }
+            jbd_lock_bh_state(bh_in);
+
+            if (jh_in->b_frozen_data) {
+                done_copy_out = 1;
+                new_page = virt_to_page(jh_in->b_frozen_data);
+                new_offset = offset_in_page(jh_in->b_frozen_data);
+            }
+
+            d_page = virt_to_page(d_copy);
+            d_offset = offset_in_page(d_copy);
+            
+            // copy metadata content
+            mapped_data = kmap_atomic(new_page);
+            new_start = mapped_data + new_offset;
+
+            d_mapped_data = kmap_atomic(d_page);
+            d_start = d_mapped_data + d_offset;
+            
+            memcpy(d_start, new_start, bh_in->b_size);
+
+            if (*(__be32 *)d_start == cpu_to_be32(JBD2_MAGIC_NUMBER)) {
+                my_jh->b_escape = 1;
+		*((unsigned int *)d_start) = 0;
+            }
+            kunmap_atomic(mapped_data);
+            kunmap_atomic(d_mapped_data);
+
+            //set d_copy bh
+            set_bh_page(my_bh, d_page, d_offset);
+            my_jh->b_transaction = NULL;
+            my_bh->b_blocknr = bh_in->b_blocknr; //debug only
+            my_bh->b_size = bh_in->b_size;
+            my_bh->b_bdev = transaction->t_journal->j_dev;
+            set_buffer_mapped(my_bh);
+            set_buffer_dirty(my_bh);
+            set_buffer_jwrite(my_bh);
+
+            // link to tmpio list
+            myjbd2_blist_add_buffer(&transaction->t_debug_tmpio_list, my_jh);
+        }
         //end
 
 	mapped_data = kmap_atomic(new_page);

@@ -242,8 +242,12 @@ static int count_tags_with_merge(journal_t *journal, struct buffer_head *bh)
 	while ((tagp - bh->b_data + tag_bytes) <= size) {
 		tag = (journal_block_tag_t *) tagp;
 
-                if (tag->t_flags & cpu_to_be16(JBD2_FLAG_MERGE_LAST))
-		    nr++;
+                if (!(tag->t_flags & cpu_to_be16(JBD2_FLAG_LOG_DIFF)))
+                    nr++;
+                else {
+                    if (tag->t_flags & cpu_to_be16(JBD2_FLAG_MERGE_LAST))
+                        nr++;
+                }
 		tagp += tag_bytes;
 		if (!(tag->t_flags & cpu_to_be16(JBD2_FLAG_SAME_UUID)))
 			tagp += 16;
@@ -461,6 +465,11 @@ static int do_one_pass(journal_t *journal,
 	int			tag_bytes = journal_tag_bytes(journal);
 	__u32			crc32_sum = ~0; /* Transactional Checksums */
 	int			descr_csum_size = 0;
+        //wm debug
+        unsigned int entire_count =0;
+        unsigned int partial_count =0;
+        unsigned int mycount =0;
+        //end
 
 	/*
 	 * First thing is to establish what we expect to find in the log
@@ -526,6 +535,7 @@ static int do_one_pass(journal_t *journal,
 		tmp = (journal_header_t *)bh->b_data;
 
 		if (tmp->h_magic != cpu_to_be32(JBD2_MAGIC_NUMBER)) {
+                        printk(KERN_ALERT "unknown magic number\n");
 			brelse(bh);
 			break;
 		}
@@ -547,6 +557,7 @@ static int do_one_pass(journal_t *journal,
 		switch(blocktype) {
                 //wm add debug
                 case JBD2_TEST_BLOCK:
+
 			/* Verify checksum first */
 			if (JBD2_HAS_INCOMPAT_FEATURE(journal,
 					JBD2_FEATURE_INCOMPAT_CSUM_V2))
@@ -608,6 +619,7 @@ start_next_tag:
 
 
                                         do {
+                                            mycount++;
                                             tag = (journal_block_tag_t*) tagp;
                                             blocknr = read_tag_block(tag_bytes, tag);
                                             flags = be16_to_cpu(tag->t_flags);
@@ -619,6 +631,7 @@ start_next_tag:
                                                     (journal, blocknr, next_commit_ID)) {
                                                 ++info->nr_revoke_hits;
                                                 if (!(flags & JBD2_FLAG_LOG_DIFF)) {
+                                                    printk(KERN_ALERT "entire blocks are revoked!\n");
                                                     brelse(obh);
                                                     goto debug_skip_write;
                                                 }
@@ -690,8 +703,8 @@ start_next_tag:
                                             
                                             }
                                             else {
-                                                memcpy(nbh->b_data, obh->b_data,
-                                                        journal->j_blocksize);
+                                                //memcpy(nbh->b_data, obh->b_data,
+                                                 //       journal->j_blocksize);
                                             }
 
 
@@ -706,6 +719,8 @@ start_next_tag:
                                             brelse(nbh);
 
                                             if (!(flags & JBD2_FLAG_LOG_DIFF)) {
+                                                entire_count += mycount;
+                                                mycount = 0;
                                                 brelse(obh);
                                                 goto debug_skip_write;
                                             }
@@ -715,6 +730,9 @@ skip_merge_write:
                                                 tagp += 16;
                                         } while (flags & JBD2_FLAG_LOG_DIFF && 
                                             !(flags & JBD2_FLAG_MERGE_LAST));
+
+                                        partial_count += mycount;
+                                        mycount = 0;
 
                                         //printk(KERN_ALERT "brelse obh\n");
                                         brelse(obh);
@@ -737,6 +755,9 @@ debug_skip_write:
                                 if (flags & JBD2_FLAG_LAST_TAG)
                                     break;
                         }
+
+                        printk(KERN_ALERT "recovery entire block %u\n", entire_count);
+                        printk(KERN_ALERT "recovery partial block %u\n", partial_count);
 
                         brelse(bh);
                         continue;
@@ -983,6 +1004,8 @@ skip_write:
 
                             if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
                                         JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)) {
+                                        //debug
+                        printk(KERN_ALERT "test block csum failed\n");
                                 journal->j_failed_commit =
                                     next_commit_ID;
                                 brelse(bh);

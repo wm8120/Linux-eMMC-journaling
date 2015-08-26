@@ -568,6 +568,8 @@ struct transaction_s
 	 * Doubly-linked circular list of eMMC optimization [j_list_lock]
 	 */
 	struct journal_head	*t_tmpio_list;
+        //debug
+        struct journal_head     *t_debug_tmpio_list;
 
 	/*
 	 * Doubly-linked circular list of eMMC optimization [j_list_lock]
