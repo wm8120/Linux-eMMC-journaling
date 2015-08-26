@@ -617,7 +617,6 @@ start_next_tag:
 
 					J_ASSERT(obh != NULL);
 
-
                                         do {
                                             mycount++;
                                             tag = (journal_block_tag_t*) tagp;
@@ -756,8 +755,8 @@ debug_skip_write:
                                     break;
                         }
 
-                        printk(KERN_ALERT "recovery entire block %u\n", entire_count);
-                        printk(KERN_ALERT "recovery partial block %u\n", partial_count);
+                        printk(KERN_ALERT "tid: %u, recovery entire block %u\n", sequence, entire_count);
+                        printk(KERN_ALERT "tid: %u, recovery partial block %u\n", sequence, partial_count);
 
                         brelse(bh);
                         continue;

@@ -723,6 +723,9 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 
 			jbd_debug(4, "JBD2: Submit %d IOs\n", bufs);
 
+                        //wm debug
+                        printk(KERN_ALERT "bufs is %d\n", bufs);
+
 			/* Write an end-of-descriptor marker before
                            submitting the IOs.  "tag" still points to
                            the last tag we set up. */
@@ -836,7 +839,6 @@ start_journal_io:
         //}
         blk_start_plug(&plug);
         if (commit_transaction->t_debug_tmpio_list) {
-        //if (0) {
             struct journal_head* debug_jh;
             struct buffer_head* debug_bh;
 
@@ -893,8 +895,8 @@ start_journal_io:
                 debug_bh->b_blocknr = blocknr;
                 set_buffer_mapped(debug_bh);
                 set_buffer_dirty(debug_bh);
-                set_bit(BH_JWrite, &jh2bh(debug_jh)->b_state);
-                wbuf[bufs++] = jh2bh(debug_jh);
+                set_bit(BH_JWrite, &debug_bh->b_state);
+                wbuf[bufs++] = debug_bh;
 
 		/* Record the new block's tag in the current descriptor
                    buffer */
@@ -920,11 +922,14 @@ start_journal_io:
 			first_tag = 0;
 		}
 
+                myjbd2_blist_del_buffer(&commit_transaction->t_debug_tmpio_list, debug_jh);
+                myjbd2_blist_add_buffer(&commit_transaction->t_tmpsd_list, debug_jh);
+
 		/* If there's no more to do, or if the descriptor is full,
 		   let the IO rip! */
 
 		if (bufs == journal->j_wbufsize ||
-		    commit_transaction->t_buffers == NULL ||
+		    commit_transaction->t_debug_tmpio_list == NULL ||
 		    space_left < tag_bytes + 16 + csum_size) {
 
 			jbd_debug(4, "JBD2: Submit %d IOs\n", bufs);
@@ -963,9 +968,6 @@ start_journal_io:
 			descriptor = NULL;
 			bufs = 0;
 		}
-
-                myjbd2_blist_del_buffer(&commit_transaction->t_debug_tmpio_list, debug_jh);
-                myjbd2_blist_add_buffer(&commit_transaction->t_tmpsd_list, debug_jh);
             }
 
             printk("tid %u, %u entire block\n", commit_transaction->t_tid, mycount);
@@ -1106,6 +1108,8 @@ start_journal_io:
                     bufs = 0;
                     mydescriptor == NULL;
                 }
+
+                count = 1;
             }
 
             printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
