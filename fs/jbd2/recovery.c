@@ -703,10 +703,22 @@ start_next_tag:
                                             
                                             }
                                             else {
+                                                int i=0;
+                                                size_t unit = sizeof(u32);
+
+                                                while (i*sizeof(u32) < journal->j_blocksize) {
+                                                    J_ASSERT((i+1)*sizeof(u32) <= journal->j_blocksize);
+                                                    if (*(u32*)(obh->b_data+i*unit) != *(u32*)(nbh->b_data+i*unit)) {
+                                                        printk(KERN_ALERT "tid: %u, fail when i=%d, nbh blocknr is %u\n", sequence, i, nbh->b_blocknr);
+                                                        BUG_ON(1);
+                                                    }
+                                                    i++;
+                                                }
+                                                //wm debug
+                                                printk(KERN_ALERT "tid: %u, same, nbh blocknr is %u\n", sequence, nbh->b_blocknr);
                                                 //memcpy(nbh->b_data, obh->b_data,
                                                  //       journal->j_blocksize);
                                             }
-
 
                                             BUFFER_TRACE(nbh, "marking dirty");
                                             set_buffer_uptodate(nbh);

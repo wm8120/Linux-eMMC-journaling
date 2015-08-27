@@ -877,8 +877,30 @@ start_journal_io:
                     set_buffer_jwrite(bh);
                     set_buffer_dirty(bh);
                     wbuf[bufs++] = bh;
+		}
 
-                    printk(KERN_ALERT "entire descriptor blocknr is %u\n", bh->b_blocknr);
+		/* Record the new block's tag in the current descriptor
+                   buffer */
+
+		tag_flag = 0;
+		if (debug_jh->b_escape)
+			tag_flag |= JBD2_FLAG_ESCAPE;
+		if (!first_tag)
+			tag_flag |= JBD2_FLAG_SAME_UUID;
+
+		tag = (journal_block_tag_t *) tagp;
+		write_tag_block(tag_bytes, tag, debug_bh->b_blocknr);
+		tag->t_flags = cpu_to_be16(tag_flag);
+		jbd2_block_tag_csum_set(journal, tag, debug_bh,
+					commit_transaction->t_tid);
+		tagp += tag_bytes;
+		space_left -= tag_bytes;
+
+		if (first_tag) {
+			memcpy (tagp, journal->j_uuid, 16);
+			tagp += 16;
+			space_left -= 16;
+			first_tag = 0;
 		}
 
 		/* Where is the buffer to be written? */
@@ -896,30 +918,6 @@ start_journal_io:
                 set_buffer_dirty(debug_bh);
                 set_bit(BH_JWrite, &debug_bh->b_state);
                 wbuf[bufs++] = debug_bh;
-
-		/* Record the new block's tag in the current descriptor
-                   buffer */
-
-		tag_flag = 0;
-		if (debug_jh->b_escape)
-			tag_flag |= JBD2_FLAG_ESCAPE;
-		if (!first_tag)
-			tag_flag |= JBD2_FLAG_SAME_UUID;
-
-		tag = (journal_block_tag_t *) tagp;
-		write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr);
-		tag->t_flags = cpu_to_be16(tag_flag);
-		jbd2_block_tag_csum_set(journal, tag, jh2bh(new_jh),
-					commit_transaction->t_tid);
-		tagp += tag_bytes;
-		space_left -= tag_bytes;
-
-		if (first_tag) {
-			memcpy (tagp, journal->j_uuid, 16);
-			tagp += 16;
-			space_left -= 16;
-			first_tag = 0;
-		}
 
                 myjbd2_blist_del_buffer(&commit_transaction->t_debug_tmpio_list, debug_jh);
                 myjbd2_blist_add_buffer(&commit_transaction->t_tmpsd_list, debug_jh);
@@ -1025,8 +1023,6 @@ start_journal_io:
                     first_tag = 1;
                     space_left = mybh->b_size - sizeof(journal_header_t);
                     wbuf[bufs++] = mybh;
-
-                    printk(KERN_ALERT "partial descriptor blocknr is %u\n", mybh->b_blocknr);
                 }
 
                 do {
