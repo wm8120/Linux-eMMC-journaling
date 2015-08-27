@@ -132,8 +132,6 @@ static int journal_submit_commit_record(journal_t *journal,
 		return 1;
 
 	bh = jh2bh(descriptor);
-        //wm debug
-        printk(KERN_ALERT "commit blocknr is %u\n", bh->b_blocknr);
 
 	tmp = (struct commit_header *)bh->b_data;
 	tmp->h_magic = cpu_to_be32(JBD2_MAGIC_NUMBER);
@@ -1008,7 +1006,6 @@ start_journal_io:
                     if (bufs > 0) {
                             // last tag
                             tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
-                            printk(KERN_ALERT "LAST tag due to space limit\n");
                     }
 
                     mydescriptor = jbd2_journal_get_descriptor_buffer(journal);
@@ -1072,8 +1069,6 @@ start_journal_io:
                 } while (jhi != jhp);
 
                 tag->t_flags |= cpu_to_be16(JBD2_FLAG_MERGE_LAST);
-                //wm debug
-                printk(KERN_ALERT "MERGE_LAST tag\n");
 
                 J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
                 J_ASSERT_JH(jh, buffer_mapped(jh2bh(jh)));
@@ -1100,8 +1095,6 @@ start_journal_io:
                     int i;
 
 		    tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
-                    //wm debug    
-                    printk(KERN_ALERT "LAST tag\n");
 
                     for (i=0; i<bufs; i++) {
                         struct buffer_head* bh = wbuf[i];
