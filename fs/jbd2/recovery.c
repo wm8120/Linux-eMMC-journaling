@@ -581,6 +581,7 @@ static int do_one_pass(journal_t *journal,
                         //if (1) {
                             int tags = count_tags_with_merge(journal, bh); 
                             next_log_block += tags;
+                            printk(KERN_ALERT "tid: %u, %d blocks, next log blocknr is %u\n", sequence, tags, next_log_block);
                             wrap(journal, next_log_block);
                             put_bh(bh);
                             continue;

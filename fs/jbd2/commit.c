@@ -132,6 +132,8 @@ static int journal_submit_commit_record(journal_t *journal,
 		return 1;
 
 	bh = jh2bh(descriptor);
+        //wm debug
+        printk(KERN_ALERT "commit blocknr is %u\n", bh->b_blocknr);
 
 	tmp = (struct commit_header *)bh->b_data;
 	tmp->h_magic = cpu_to_be32(JBD2_MAGIC_NUMBER);
@@ -723,9 +725,6 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 
 			jbd_debug(4, "JBD2: Submit %d IOs\n", bufs);
 
-                        //wm debug
-                        printk(KERN_ALERT "bufs is %d\n", bufs);
-
 			/* Write an end-of-descriptor marker before
                            submitting the IOs.  "tag" still points to
                            the last tag we set up. */
@@ -880,6 +879,8 @@ start_journal_io:
                     set_buffer_jwrite(bh);
                     set_buffer_dirty(bh);
                     wbuf[bufs++] = bh;
+
+                    printk(KERN_ALERT "entire descriptor blocknr is %u\n", bh->b_blocknr);
 		}
 
 		/* Where is the buffer to be written? */
@@ -1007,6 +1008,7 @@ start_journal_io:
                     if (bufs > 0) {
                             // last tag
                             tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
+                            printk(KERN_ALERT "LAST tag due to space limit\n");
                     }
 
                     mydescriptor = jbd2_journal_get_descriptor_buffer(journal);
@@ -1026,6 +1028,8 @@ start_journal_io:
                     first_tag = 1;
                     space_left = mybh->b_size - sizeof(journal_header_t);
                     wbuf[bufs++] = mybh;
+
+                    printk(KERN_ALERT "partial descriptor blocknr is %u\n", mybh->b_blocknr);
                 }
 
                 do {
@@ -1068,6 +1072,8 @@ start_journal_io:
                 } while (jhi != jhp);
 
                 tag->t_flags |= cpu_to_be16(JBD2_FLAG_MERGE_LAST);
+                //wm debug
+                printk(KERN_ALERT "MERGE_LAST tag\n");
 
                 J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
                 J_ASSERT_JH(jh, buffer_mapped(jh2bh(jh)));
@@ -1094,6 +1100,8 @@ start_journal_io:
                     int i;
 
 		    tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
+                    //wm debug    
+                    printk(KERN_ALERT "LAST tag\n");
 
                     for (i=0; i<bufs; i++) {
                         struct buffer_head* bh = wbuf[i];
@@ -1106,7 +1114,7 @@ start_journal_io:
                     }
 
                     bufs = 0;
-                    mydescriptor == NULL;
+                    mydescriptor = NULL;
                 }
 
                 count = 1;

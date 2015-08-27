@@ -2720,11 +2720,11 @@ static void __journal_remove_journal_head(struct buffer_head *bh)
 	}
         //wm add
         if (jh->snapshot) {
-	    printk(KERN_WARNING "%s: freeing snapshot\n", __func__);
+	    //printk(KERN_WARNING "%s: freeing snapshot\n", __func__);
             jbd2_free (jh->snapshot, bh->b_size);
         }
         if (jh->b_bitmap) {
-	    printk(KERN_WARNING "%s: freeing bitmap\n", __func__);
+	    //printk(KERN_WARNING "%s: freeing bitmap\n", __func__);
             jbd2_free (jh->b_bitmap, jh->b_bitmap_size);
         }
         //end
