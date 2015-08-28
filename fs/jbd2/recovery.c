@@ -706,16 +706,14 @@ start_next_tag:
                                                 int i=0;
                                                 size_t unit = sizeof(u32);
 
-                                                while (i*sizeof(u32) < journal->j_blocksize) {
-                                                    J_ASSERT((i+1)*sizeof(u32) <= journal->j_blocksize);
-                                                    if (*(u32*)(obh->b_data+i*unit) != *(u32*)(nbh->b_data+i*unit)) {
-                                                        printk(KERN_ALERT "tid: %u, fail when i=%d, nbh blocknr is %u\n", sequence, i, nbh->b_blocknr);
-                                                        BUG_ON(1);
-                                                    }
-                                                    i++;
-                                                }
-                                                //wm debug
-                                                printk(KERN_ALERT "tid: %u, same, nbh blocknr is %u\n", sequence, nbh->b_blocknr);
+                                                //while (i*sizeof(u32) < journal->j_blocksize) {
+                                                //    J_ASSERT((i+1)*sizeof(u32) <= journal->j_blocksize);
+                                                //    if (*(u32*)(obh->b_data+i*unit) != *(u32*)(nbh->b_data+i*unit)) {
+                                                //        printk(KERN_ALERT "tid: %u, fail when i=%d, nbh blocknr is %u\n", sequence, i, nbh->b_blocknr);
+                                                //        BUG_ON(1);
+                                                //    }
+                                                //    i++;
+                                                //}
                                                 //memcpy(nbh->b_data, obh->b_data,
                                                  //       journal->j_blocksize);
                                             }
@@ -768,8 +766,8 @@ debug_skip_write:
                                     break;
                         }
 
-                        printk(KERN_ALERT "tid: %u, recovery entire block %u\n", sequence, entire_count);
-                        printk(KERN_ALERT "tid: %u, recovery partial block %u\n", sequence, partial_count);
+                        //printk(KERN_ALERT "tid: %u, recovery entire block %u\n", sequence, entire_count);
+                        //printk(KERN_ALERT "tid: %u, recovery partial block %u\n", sequence, partial_count);
 
                         brelse(bh);
                         continue;

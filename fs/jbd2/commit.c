@@ -758,7 +758,7 @@ start_journal_io:
 			bufs = 0;
 		}
 	}
-        printk("tid %u, %u journal block\n", commit_transaction->t_tid, mycount);
+        //printk("tid %u, %u journal block\n", commit_transaction->t_tid, mycount);
 
 	err = journal_finish_inode_data_buffers(journal, commit_transaction);
 	if (err) {
@@ -967,7 +967,7 @@ start_journal_io:
 		}
             }
 
-            printk("tid %u, %u entire block\n", commit_transaction->t_tid, mycount);
+            //printk("tid %u, %u entire block\n", commit_transaction->t_tid, mycount);
         }
 
         if (commit_transaction->t_tmpio_list) {
@@ -1109,7 +1109,7 @@ start_journal_io:
                 count = 1;
             }
 
-            printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
+            //printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
         }
 	blk_finish_plug(&plug);
         //end
