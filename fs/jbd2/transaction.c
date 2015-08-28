@@ -1748,6 +1748,10 @@ static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh)
 		mark_buffer_dirty(bh);	/* Expose it to the VM */
 }
 
+void myjbd2_journal_temp_unlink_buffer(struct journal_head *jh) {
+    __jbd2_journal_temp_unlink_buffer(jh);
+}
+
 /*
  * Remove buffer from all transactions.
  *

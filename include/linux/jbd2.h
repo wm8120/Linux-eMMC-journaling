@@ -1083,8 +1083,8 @@ extern void jbd2_buffer_abort_trigger(struct journal_head *jh,
 extern int
 jbd2_journal_write_metadata_buffer(transaction_t	  *transaction,
 			      struct journal_head  *jh_in,
-			      struct journal_head **jh_out,
-			      unsigned long long   blocknr);
+			      struct journal_head **jh_out);
+			      //unsigned long long   blocknr);
 
 /* Transaction locking */
 extern void		__wait_on_journal (journal_t *);
@@ -1363,6 +1363,7 @@ myjbd2_blist_del_buffer(struct journal_head **list, struct journal_head *jh)
 	jh->b_tnext->b_tprev = jh->b_tprev;
 }
 
+void myjbd2_journal_temp_unlink_buffer(struct journal_head *jh);
 //end
 
 extern int jbd_blocks_per_page(struct inode *inode);

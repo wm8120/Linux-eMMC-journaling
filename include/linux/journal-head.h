@@ -63,10 +63,12 @@ struct journal_head {
         unsigned long* b_bitmap;
         size_t b_bitmap_size;
         
-        unsigned b_log_all; //dirty so many places, don't optimize
-        unsigned b_log_diff; //this journal head is only log diffs in journaling
-
-        unsigned b_escape;  // debug only
+        /*
+         * b_log_diff == 0 : entire block log
+         * bit 0 set: partial log, used for jh in shadow list
+         * bit 1 set: do escape, used for jh in io list
+         */
+        unsigned b_log_diff; 
         //end
 
 	/*

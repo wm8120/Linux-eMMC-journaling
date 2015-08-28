@@ -366,7 +366,7 @@ static void jbd2_block_tag_csum_set(journal_t *j, journal_block_tag_t *tag,
  */
 void jbd2_journal_commit_transaction(journal_t *journal)
 {
-        //wm add debug
+    //wm add debug
     struct buffer_head* mybh;
     struct buffer_head* mybh2;
     struct journal_head* mydescriptor;
@@ -646,17 +646,6 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 					BJ_LogCtl);
 		}
 
-		/* Where is the buffer to be written? */
-
-		err = jbd2_journal_next_log_block(journal, &blocknr);
-		/* If the block mapping failed, just abandon the buffer
-		   and repeat this loop: we'll fall into the
-		   refile-on-abort condition above. */
-		if (err) {
-			jbd2_journal_abort(journal, err);
-			continue;
-		}
-
 		/*
 		 * start_this_handle() uses t_outstanding_credits to determine
 		 * the free space in the log, but this counter is changed
@@ -682,11 +671,16 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 		 */
 		JBUFFER_TRACE(jh, "ph3: write metadata");
 		flags = jbd2_journal_write_metadata_buffer(commit_transaction,
-						      jh, &new_jh, blocknr);
+						      jh, &new_jh);
 		if (flags < 0) {
 			jbd2_journal_abort(journal, flags);
 			continue;
 		}
+
+                if (jh->b_log_diff & 1) {
+                    continue;
+                }
+
 		set_bit(BH_JWrite, &jh2bh(new_jh)->b_state);
 		wbuf[bufs++] = jh2bh(new_jh);
 
@@ -883,7 +877,7 @@ start_journal_io:
                    buffer */
 
 		tag_flag = 0;
-		if (debug_jh->b_escape)
+		if (debug_jh->b_log_diff & 2)
 			tag_flag |= JBD2_FLAG_ESCAPE;
 		if (!first_tag)
 			tag_flag |= JBD2_FLAG_SAME_UUID;
@@ -1038,7 +1032,7 @@ start_journal_io:
 
                     if (first_tag) {
                         J_ASSERT( jh == jhi );
-                        if (jhi->b_escape) tag_flag |= JBD2_FLAG_ESCAPE;
+                        if (jhi->b_log_diff & 2) tag_flag |= JBD2_FLAG_ESCAPE;
                         memcpy (tagp, journal->j_uuid, 16);
                         tagp += 16;
                         space_left -= 16;

@@ -330,18 +330,18 @@ static void journal_kill_thread(journal_t *journal)
 
 int jbd2_journal_write_metadata_buffer(transaction_t *transaction,
 				  struct journal_head  *jh_in,
-				  struct journal_head **jh_out,
-				  unsigned long long blocknr)
+				  struct journal_head **jh_out)
 {
 	int need_copy_out = 0;
 	int done_copy_out = 0;
 	int do_escape = 0;
+        int log_partial = 0;
 	char *mapped_data;
 	struct buffer_head *new_bh;
 	struct journal_head *new_jh;
         //wm add
-	struct buffer_head *my_bh;
-	struct journal_head *my_jh;
+        int err = 0;
+        unsigned long long blocknr;
         //end
 	struct page *new_page;
 	unsigned int new_offset;
@@ -374,20 +374,6 @@ retry_alloc:
 	atomic_set(&new_bh->b_count, 1);
 	new_jh = jbd2_journal_add_journal_head(new_bh);	/* This sleeps */
 
-myjbd2_retry_alloc:
-        my_bh = alloc_buffer_head(GFP_NOFS);
-        if (!my_bh) {
-            /*
-             * Failure is not an option, but __GFP_NOFAIL is going
-             * away; so we retry ourselves here.
-             */
-            congestion_wait(BLK_RW_ASYNC, HZ/50);
-            goto myjbd2_retry_alloc;
-        }
-        /* keep subsequent assertions sane */
-        atomic_set(&my_bh->b_count, 1);
-        my_jh = jbd2_journal_add_journal_head(my_bh);	/* This sleeps */
-
 	/*
 	 * If a new transaction has already done a buffer copy-out, then
 	 * we use that version of the data for the commit.
@@ -405,22 +391,22 @@ repeat:
 
         //wm add
         J_ASSERT_JH(jh_in, jh_in->b_new_create || (jh_in->snapshot != NULL && jh_in->b_bitmap != NULL));
+
         if (!jh_in->b_new_create) {
             struct page* old_page;
             unsigned int old_offset;
             char* old_data;
-            char* my_data;
             unsigned int count=0;
             unsigned int ccount = 0; //how many continued bits are set
             int change_start = 0;
             char* old_start;
             char* new_start;
-            char* my_start;
             size_t i=0;
             size_t jsize = journal->j_blocksize;
-            struct page* my_page;
-            unsigned int my_offset;
+            struct page* merge_page;
+            unsigned int merge_offset;
             char* merge_data;
+            char* merge_start;
             size_t space_left;
             size_t unit = sizeof(jbd2_unit_t);
             size_t start_offset; //used to determine whether we need to do escape check
@@ -463,19 +449,24 @@ repeat:
                 //    debugi++;
                 //    printk(KERN_ALERT "compare %4ph\n", (void *)(old_start + i*unit));
                 //}
+
+                if (count > jbd2_change_merge_thresh(journal->j_blocksize))
+                    break;
             }
             if (ccount != 0)
                 jbd2_bitmap_set(jh_in->b_bitmap, change_start, ccount); 
 
-            //printk(KERN_ALERT "1 bitmap %32ph\tcount=%u\n", jh_in->b_bitmap, count);
-            memcpy(old_start, new_start, bh_in->b_size); //update snapshot
-            kunmap_atomic(old_data);
-            kunmap_atomic(mapped_data);
-
             if ( count == 0 || count > jbd2_change_merge_thresh(journal->j_blocksize)) {
-                memset(jh_in->b_bitmap, 0, jh_in->b_bitmap_size);
+                kunmap_atomic(old_data);
+                kunmap_atomic(mapped_data);
                 goto no_merge;
             }
+
+            //printk(KERN_ALERT "1 bitmap %32ph\tcount=%u\n", jh_in->b_bitmap, count);
+            //update snapshot
+            memcpy(old_start, new_start, bh_in->b_size);
+            kunmap_atomic(old_data);
+            kunmap_atomic(mapped_data);
 
             jh_in->b_log_diff = 1; //mark it only log diff, for checkpoint list select
 
@@ -488,10 +479,9 @@ repeat:
                 merge_data = jbd2_alloc(jsize, GFP_NOFS);
                 if (!merge_data) {
                     jbd2_journal_put_journal_head(new_jh);
-                    jbd2_journal_put_journal_head(my_jh);
-                    __brelse(my_bh);
-                    J_ASSERT_BH(my_bh, atomic_read(&my_bh->b_count) == 0);
-                    free_buffer_head(my_bh);
+                    __brelse(new_bh);
+                    J_ASSERT_BH(new_bh, atomic_read(&new_bh->b_count) == 0);
+                    free_buffer_head(new_bh);
                     return -ENOMEM;
                 }
                 jbd_lock_bh_state(bh_in);
@@ -502,47 +492,48 @@ repeat:
                     new_page = virt_to_page(jh_in->b_frozen_data);
                     new_offset = offset_in_page(jh_in->b_frozen_data);
                 }
-                my_page = virt_to_page(merge_data);
-                my_offset = offset_in_page(merge_data);
+                merge_page = virt_to_page(merge_data);
+                merge_offset = offset_in_page(merge_data);
 
-                set_bh_page(my_bh, my_page, my_offset);
-                my_jh->b_transaction = NULL;
-                my_bh->b_blocknr = bh_in->b_blocknr;
-                my_bh->b_size = jsize;
-                my_bh->b_bdev = transaction->t_journal->j_dev;
-                set_buffer_mapped(my_bh);
-                set_buffer_dirty(my_bh);
-                set_buffer_jwrite(my_bh);
-                // link to tmpio list
-                myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
-                transaction->cur_tmpio = my_jh;
+                set_bh_page(new_bh, merge_page, merge_offset);
+                new_jh->b_transaction = NULL;
+                new_bh->b_blocknr = bh_in->b_blocknr;
+                new_bh->b_size = jsize;
+                new_bh->b_bdev = transaction->t_journal->j_dev;
+                set_buffer_mapped(new_bh);
+                set_buffer_dirty(new_bh);
+                set_buffer_jwrite(new_bh);
+
+                // link new_jh to tmpio list
+                myjbd2_blist_add_buffer(&transaction->t_tmpio_list, new_jh);
+                transaction->cur_tmpio = new_jh;
                 transaction->t_tmpio_offset = 0;
                 start_offset = 0;
-            }
-            else {
-                my_bh->b_blocknr = bh_in->b_blocknr;
-                my_bh->b_size = jsize;
-                my_bh->b_data = NULL;
+            } else {
+                new_bh->b_blocknr = bh_in->b_blocknr;
+                new_bh->b_size = jsize;
+                new_bh->b_data = NULL;
+
                 // link to tmpio list
-                myjbd2_blist_add_buffer(&transaction->t_tmpio_list, my_jh);
-                my_jh = transaction->cur_tmpio;
-                my_bh = jh2bh(my_jh); 
-                J_ASSERT_BH(my_bh, buffer_mapped(my_bh) && my_bh->b_data != NULL);
-                my_page = virt_to_page(my_bh->b_data);
-                my_offset = offset_in_page(my_bh->b_data);
+                myjbd2_blist_add_buffer(&transaction->t_tmpio_list, new_jh);
+
+                new_jh = transaction->cur_tmpio;
+                new_bh = jh2bh(new_jh);
+                J_ASSERT_BH(new_bh, buffer_mapped(new_bh) && new_bh->b_data != NULL);
+                merge_page = virt_to_page(new_bh->b_data);
+                merge_offset = offset_in_page(new_bh->b_data);
                 start_offset = transaction->t_tmpio_offset;
             }
 
             // copy bit map and changed data to merged block
-            my_data = kmap_atomic(my_page);
-            my_start = my_data + my_offset;
+            merge_data = kmap_atomic(merge_page);
+            merge_start = merge_data + merge_offset + start_offset;
             old_data = kmap_atomic(old_page);
             old_start = old_data + old_offset;
 
             // copy bitmap to merged block
-            my_start += start_offset;
-            memcpy(my_start, jh_in->b_bitmap, jh_in->b_bitmap_size);
-            my_start += jh_in->b_bitmap_size;
+            memcpy(merge_start, jh_in->b_bitmap, jh_in->b_bitmap_size);
+            merge_start += jh_in->b_bitmap_size;
 
             // copy changed bytes
             //ccount = 0;
@@ -553,182 +544,152 @@ repeat:
             //J_ASSERT(ccount == count);
             jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
                 J_ASSERT((i+1)*unit <= jsize);
-                J_ASSERT(my_start + unit <= my_data + my_offset + jsize);
-                memcpy(my_start, old_start+i*unit, unit);
-                // printk(KERN_ALERT "copy change %4ph\n", (void *)my_start);
-                my_start += unit;
+                J_ASSERT(merge_start + unit <= merge_data + merge_offset + jsize);
+                memcpy(merge_start, old_start+i*unit, unit);
+                // printk(KERN_ALERT "copy change %4ph\n", (void *)merge_start);
+                merge_start += unit;
             }
 
             //clean up bitmap
             memset((void*)jh_in->b_bitmap, 0, jh_in->b_bitmap_size);
+
             // update offset
             transaction->t_tmpio_offset += (jh_in->b_bitmap_size+count*unit);
             J_ASSERT(transaction->t_tmpio_offset <= journal->j_blocksize);
 
+            //escape check
             if (start_offset < 5 && transaction->t_tmpio_offset >= 4) {
                 // we need to do escape check
-                if (*((__be32 *)(my_data + my_offset)) ==
+                if (*((__be32 *)(merge_data + merge_offset)) ==
                         cpu_to_be32(JBD2_MAGIC_NUMBER)) {
-                    transaction->cur_tmpio->b_escape = 1;
-	            *((unsigned int *)(my_data + my_offset)) = 0;
+                    transaction->cur_tmpio->b_log_diff |= 2;
+	            *((unsigned int *)(merge_data + merge_offset)) = 0;
                 }
             }
 
-            kunmap_atomic(my_data);
+            kunmap_atomic(merge_data);
             kunmap_atomic(old_data);
+
+            // link jh_in to tmpsd, set b_jlist = BJ_Shadow
+            J_ASSERT(jh_in->b_transaction);
+            spin_lock(&journal->j_list_lock);
+            myjbd2_journal_temp_unlink_buffer(jh_in);
+            spin_unlock(&journal->j_list_lock);
+            myjbd2_blist_add_buffer(&transaction->t_tmpsd_list, jh_in);
+            jh_in->b_jlist = BJ_Shadow;
+
         } else {
-            char* d_copy = NULL;
-            char* new_start = NULL;
-            char* d_start = NULL;
-            char* d_mapped_data = NULL;
-            struct page* d_page;
-            unsigned int d_offset;
-
 no_merge:
-            jbd_unlock_bh_state(bh_in);
-            d_copy = jbd2_alloc(bh_in->b_size, GFP_NOFS);
-            if (!d_copy) {
+            jh_in->b_log_diff = 0; // clean up the historical info
+            memset(jh_in->b_bitmap, 0, jh_in->b_bitmap_size); // clean up bitmap
+
+            /* Where is the buffer to be written? */
+            err = jbd2_journal_next_log_block(journal, &blocknr);
+            if (err) {
                 jbd2_journal_put_journal_head(new_jh);
-                jbd2_journal_put_journal_head(my_jh);
-                __brelse(my_bh);
-                J_ASSERT_BH(my_bh, atomic_read(&my_bh->b_count) == 0);
-                free_buffer_head(my_bh);
-                return -ENOMEM;
-            }
-            jbd_lock_bh_state(bh_in);
-
-            if (jh_in->b_frozen_data) {
-                done_copy_out = 1;
-                new_page = virt_to_page(jh_in->b_frozen_data);
-                new_offset = offset_in_page(jh_in->b_frozen_data);
+                __brelse(new_bh);
+                J_ASSERT_BH(new_bh, atomic_read(&new_bh->b_count) == 0);
+                free_buffer_head(new_bh);
+                return -EIO;
             }
 
-            d_page = virt_to_page(d_copy);
-            d_offset = offset_in_page(d_copy);
-            
-            // copy metadata content
             mapped_data = kmap_atomic(new_page);
-            new_start = mapped_data + new_offset;
+            /*
+             * Fire data frozen trigger if data already wasn't frozen.  Do this
+             * before checking for escaping, as the trigger may modify the magic
+             * offset.  If a copy-out happens afterwards, it will have the correct
+             * data in the buffer.
+             */
+            if (!done_copy_out)
+                jbd2_buffer_frozen_trigger(jh_in, mapped_data + new_offset,
+                        jh_in->b_triggers);
 
-            d_mapped_data = kmap_atomic(d_page);
-            d_start = d_mapped_data + d_offset;
-            
-            memcpy(d_start, new_start, bh_in->b_size);
-
-            if (*(__be32 *)d_start == cpu_to_be32(JBD2_MAGIC_NUMBER)) {
-                my_jh->b_escape = 1;
-		*((unsigned int *)d_start) = 0;
+            /*
+             * Check for escaping
+             */
+            if (*((__be32 *)(mapped_data + new_offset)) ==
+                    cpu_to_be32(JBD2_MAGIC_NUMBER)) {
+                need_copy_out = 1;
+                do_escape = 1;
+                new_jh->b_log_diff |= 2; 
+                //it's not partial logged
+                J_ASSERT_JH(jh_in, (jh_in->b_log_diff & 1) == 0); 
             }
+
             kunmap_atomic(mapped_data);
-            kunmap_atomic(d_mapped_data);
 
-            //set d_copy bh
-            set_bh_page(my_bh, d_page, d_offset);
-            my_jh->b_transaction = NULL;
-            my_bh->b_blocknr = bh_in->b_blocknr; //debug only
-            my_bh->b_size = bh_in->b_size;
-            my_bh->b_bdev = transaction->t_journal->j_dev;
-            set_buffer_mapped(my_bh);
-            set_buffer_dirty(my_bh);
-            set_buffer_jwrite(my_bh);
+            /*
+             * Do we need to do a data copy?
+             */
+            if (need_copy_out && !done_copy_out) {
+                char *tmp;
 
-            // link to tmpio list
-            myjbd2_blist_add_buffer(&transaction->t_debug_tmpio_list, my_jh);
+                jbd_unlock_bh_state(bh_in);
+                tmp = jbd2_alloc(bh_in->b_size, GFP_NOFS);
+                if (!tmp) {
+                    jbd2_journal_put_journal_head(new_jh);
+                    return -ENOMEM;
+                }
+                jbd_lock_bh_state(bh_in);
+                if (jh_in->b_frozen_data) {
+                    jbd2_free(tmp, bh_in->b_size);
+                    //wm debug
+                    printk(KERN_ALERT "ALERT: goto repeat\n");
+                    goto repeat;
+                }
+
+                jh_in->b_frozen_data = tmp;
+                mapped_data = kmap_atomic(new_page);
+                memcpy(tmp, mapped_data + new_offset, jh2bh(jh_in)->b_size);
+                kunmap_atomic(mapped_data);
+
+                new_page = virt_to_page(tmp);
+                new_offset = offset_in_page(tmp);
+                done_copy_out = 1;
+
+                /*
+                 * This isn't strictly necessary, as we're using frozen
+                 * data for the escaping, but it keeps consistency with
+                 * b_frozen_data usage.
+                 */
+                jh_in->b_frozen_triggers = jh_in->b_triggers;
+            }
+
+            /*
+             * Did we need to do an escaping?  Now we've done all the
+             * copying, we can finally do so.
+             */
+            if (do_escape) {
+                mapped_data = kmap_atomic(new_page);
+                *((unsigned int *)(mapped_data + new_offset)) = 0;
+                kunmap_atomic(mapped_data);
+            }
+
+            set_bh_page(new_bh, new_page, new_offset);
+            new_jh->b_transaction = NULL;
+            new_bh->b_size = jh2bh(jh_in)->b_size;
+            new_bh->b_bdev = transaction->t_journal->j_dev;
+            new_bh->b_blocknr = blocknr;
+            set_buffer_mapped(new_bh);
+            set_buffer_dirty(new_bh);
+
+            *jh_out = new_jh;
+
+            /*
+             * The to-be-written buffer needs to get moved to the io queue,
+             * and the original buffer whose contents we are shadowing or
+             * copying is moved to the transaction's shadow queue.
+             */
+            JBUFFER_TRACE(jh_in, "file as BJ_Shadow");
+            spin_lock(&journal->j_list_lock);
+            __jbd2_journal_file_buffer(jh_in, transaction, BJ_Shadow);
+            spin_unlock(&journal->j_list_lock);
+            jbd_unlock_bh_state(bh_in);
+
+            JBUFFER_TRACE(new_jh, "file as BJ_IO");
+            jbd2_journal_file_buffer(new_jh, transaction, BJ_IO);
         }
         //end
-
-	mapped_data = kmap_atomic(new_page);
-	/*
-	 * Fire data frozen trigger if data already wasn't frozen.  Do this
-	 * before checking for escaping, as the trigger may modify the magic
-	 * offset.  If a copy-out happens afterwards, it will have the correct
-	 * data in the buffer.
-	 */
-	if (!done_copy_out)
-		jbd2_buffer_frozen_trigger(jh_in, mapped_data + new_offset,
-					   jh_in->b_triggers);
-
-	/*
-	 * Check for escaping
-	 */
-	if (*((__be32 *)(mapped_data + new_offset)) ==
-				cpu_to_be32(JBD2_MAGIC_NUMBER)) {
-		need_copy_out = 1;
-		do_escape = 1;
-	}
-
-	kunmap_atomic(mapped_data);
-
-	/*
-	 * Do we need to do a data copy?
-	 */
-	if (need_copy_out && !done_copy_out) {
-		char *tmp;
-
-		jbd_unlock_bh_state(bh_in);
-		tmp = jbd2_alloc(bh_in->b_size, GFP_NOFS);
-		if (!tmp) {
-			jbd2_journal_put_journal_head(new_jh);
-			return -ENOMEM;
-		}
-		jbd_lock_bh_state(bh_in);
-		if (jh_in->b_frozen_data) {
-			jbd2_free(tmp, bh_in->b_size);
-                        //wm debug
-                        printk(KERN_ALERT "ALERT: goto repeat\n");
-			goto repeat;
-		}
-
-		jh_in->b_frozen_data = tmp;
-		mapped_data = kmap_atomic(new_page);
-		memcpy(tmp, mapped_data + new_offset, jh2bh(jh_in)->b_size);
-		kunmap_atomic(mapped_data);
-
-		new_page = virt_to_page(tmp);
-		new_offset = offset_in_page(tmp);
-		done_copy_out = 1;
-
-		/*
-		 * This isn't strictly necessary, as we're using frozen
-		 * data for the escaping, but it keeps consistency with
-		 * b_frozen_data usage.
-		 */
-		jh_in->b_frozen_triggers = jh_in->b_triggers;
-	}
-
-	/*
-	 * Did we need to do an escaping?  Now we've done all the
-	 * copying, we can finally do so.
-	 */
-	if (do_escape) {
-		mapped_data = kmap_atomic(new_page);
-		*((unsigned int *)(mapped_data + new_offset)) = 0;
-		kunmap_atomic(mapped_data);
-	}
-
-	set_bh_page(new_bh, new_page, new_offset);
-	new_jh->b_transaction = NULL;
-	new_bh->b_size = jh2bh(jh_in)->b_size;
-	new_bh->b_bdev = transaction->t_journal->j_dev;
-	new_bh->b_blocknr = blocknr;
-	set_buffer_mapped(new_bh);
-	set_buffer_dirty(new_bh);
-
-	*jh_out = new_jh;
-
-	/*
-	 * The to-be-written buffer needs to get moved to the io queue,
-	 * and the original buffer whose contents we are shadowing or
-	 * copying is moved to the transaction's shadow queue.
-	 */
-	JBUFFER_TRACE(jh_in, "file as BJ_Shadow");
-	spin_lock(&journal->j_list_lock);
-	__jbd2_journal_file_buffer(jh_in, transaction, BJ_Shadow);
-	spin_unlock(&journal->j_list_lock);
-	jbd_unlock_bh_state(bh_in);
-
-	JBUFFER_TRACE(new_jh, "file as BJ_IO");
-	jbd2_journal_file_buffer(new_jh, transaction, BJ_IO);
 
 	return do_escape | (done_copy_out << 1);
 }
