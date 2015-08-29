@@ -568,8 +568,6 @@ struct transaction_s
 	 * Doubly-linked circular list of eMMC optimization [j_list_lock]
 	 */
 	struct journal_head	*t_tmpio_list;
-        //debug
-        struct journal_head     *t_debug_tmpio_list;
 
 	/*
 	 * Doubly-linked circular list of eMMC optimization [j_list_lock]
@@ -579,8 +577,6 @@ struct transaction_s
         size_t      t_tmpio_offset; // offset in the block buffer in tmpio list
 
         struct journal_head     *cur_tmpio; //points to the jh with merged data in tmpio list
-
-        //char* t_scratchpad;
         //end
 
 	/*

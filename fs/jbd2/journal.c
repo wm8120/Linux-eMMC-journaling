@@ -335,7 +335,6 @@ int jbd2_journal_write_metadata_buffer(transaction_t *transaction,
 	int need_copy_out = 0;
 	int done_copy_out = 0;
 	int do_escape = 0;
-        int log_partial = 0;
 	char *mapped_data;
 	struct buffer_head *new_bh;
 	struct journal_head *new_jh;
@@ -510,6 +509,7 @@ repeat:
                 transaction->t_tmpio_offset = 0;
                 start_offset = 0;
             } else {
+                new_jh->b_transaction = NULL;
                 new_bh->b_blocknr = bh_in->b_blocknr;
                 new_bh->b_size = jsize;
                 new_bh->b_data = NULL;

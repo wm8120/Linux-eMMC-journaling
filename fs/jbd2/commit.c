@@ -368,7 +368,6 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 {
     //wm add debug
     struct buffer_head* mybh;
-    struct buffer_head* mybh2;
     struct journal_head* mydescriptor;
     struct journal_head* myjh;
         unsigned int mycount = 0;
@@ -754,6 +753,172 @@ start_journal_io:
 	}
         //printk("tid %u, %u journal block\n", commit_transaction->t_tid, mycount);
 
+        //wm add debug
+        //if (commit_transaction->t_tmpio_list) {
+        //    struct buffer_head* mybh;
+        //    struct journal_head* myjh;
+
+        //    while (commit_transaction->t_tmpio_list) {
+        //        myjh = commit_transaction->t_tmpio_list;
+        //        mybh = jh2bh(myjh);
+
+        //        myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, myjh);
+        //        jbd2_journal_put_journal_head(myjh);
+        //        if (mybh->b_data) 
+        //            jbd2_free(mybh->b_data, mybh->b_size);
+        //        __brelse(mybh);
+        //        J_ASSERT_BH(mybh, atomic_read(&mybh->b_count) == 0);
+        //        free_buffer_head(mybh);
+        //    }
+        //}
+        if (commit_transaction->t_tmpio_list) {
+            //printk(KERN_ALERT "myjbd2: enter merge block stage\n");
+            char* tagp = NULL;
+            journal_block_tag_t* tag;
+            int tag_flag;
+            unsigned long long blocknr;
+            int space_left = 0;
+            struct journal_head* jh;  //first jh in tmp io list
+            struct journal_head* jhp; //next jh with merged data
+            struct journal_head* jhi;
+            struct journal_head* jhsd, *jhsdi; //jh to tmpsd list
+            int count = 1;
+
+            bufs = 0;
+            mydescriptor = NULL;
+            mycount = 0;
+
+            while (commit_transaction->t_tmpio_list != NULL) {
+                jhi = jh = commit_transaction->t_tmpio_list;
+                jhp = jh->b_tnext;
+
+                jhsdi = jhsd = commit_transaction->t_tmpsd_list;
+
+                J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
+                J_ASSERT_JH(jhsd, jhsd->b_log_diff == 1);
+
+                while (jh2bh(jhp)->b_data == NULL) {
+                    count++;
+                    jhp = jhp->b_tnext;
+                }
+                mycount += count;
+                
+                if (mydescriptor == NULL || space_left < count*tag_bytes) {
+                    
+                    if (bufs > 0) {
+                            // last tag
+                            tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
+                    }
+
+                    mydescriptor = jbd2_journal_get_descriptor_buffer(journal);
+                    if (!mydescriptor) {
+                        printk(KERN_ALERT "allocate descriptor for JBD2_TEST_BLOCK failed!\n");
+                        jbd2_journal_abort(journal, -EIO);
+                    }
+                    // header
+                    mybh = jh2bh(mydescriptor);
+                    header = (journal_header_t *)&mybh->b_data[0];
+                    header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
+                    header->h_blocktype = cpu_to_be32(JBD2_TEST_BLOCK);
+                    header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
+
+                    tagp = &mybh->b_data[sizeof(journal_header_t)];
+
+                    first_tag = 1;
+                    space_left = mybh->b_size - sizeof(journal_header_t);
+                    wbuf[bufs++] = mybh;
+
+                    jbd2_journal_file_buffer(mydescriptor, commit_transaction,
+                            BJ_LogCtl);
+                }
+
+                do {
+                    tag = (journal_block_tag_t *) tagp;
+                    tag_flag = 0;
+
+                    // fill tag
+                    write_tag_block(tag_bytes, tag, jh2bh(jhi)->b_blocknr);
+                    tag_flag |= JBD2_FLAG_LOG_DIFF;
+
+                    tagp += tag_bytes;
+                    space_left -= tag_bytes;
+
+                    if (first_tag) {
+                        J_ASSERT( jh == jhi );
+                        if (jhi->b_log_diff & 2) tag_flag |= JBD2_FLAG_ESCAPE;
+                        memcpy (tagp, journal->j_uuid, 16);
+                        tagp += 16;
+                        space_left -= 16;
+                        first_tag = 0;
+                    }
+                    else {
+                        tag_flag |= JBD2_FLAG_SAME_UUID;
+                    }
+
+                    tag->t_flags = cpu_to_be16(tag_flag);
+
+                    //link jhi from t_tmpio_list to t_iobuf_list
+                    myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jhi);
+                    J_ASSERT_JH(jhi, jhi->b_jcount == 0);
+                    jbd2_journal_file_buffer(jhi, commit_transaction, BJ_IO);
+
+                    //link jhsdi to t_shadow_list
+                    jbd2_journal_file_buffer(jhsdi, commit_transaction, BJ_Shadow);
+
+                    jhi = commit_transaction->t_tmpio_list;
+                    jhsdi = commit_transaction->t_tmpsd_list;
+                } while (jhi != jhp);
+
+                tag->t_flags |= cpu_to_be16(JBD2_FLAG_MERGE_LAST);
+
+                J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
+                J_ASSERT_JH(jh, buffer_mapped(jh2bh(jh)));
+                jbd2_journal_next_log_block(journal, &blocknr);
+                jh2bh(jh)->b_blocknr = blocknr;
+                wbuf[bufs++] = jh2bh(jh);
+
+                //debug
+                //if (1) {
+                //    struct buffer_head* obh;
+                //    //obh = __getblk(journal->j_fs_dev, blocknr, journal->j_blocksize);
+                //    obh = jh2bh(jh);
+                //    //printk(KERN_ALERT "tid is %u\n", commit_transaction->t_tid);
+                //    //printk(KERN_ALERT "bitmap %32ph\n", obh->b_data);
+                //    //brelse(obh);
+                //}
+
+                // insert jh to tmp shadow list
+                myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jh);
+                myjbd2_blist_add_buffer(&commit_transaction->t_tmpsd_list, jh);
+
+                if (commit_transaction->t_tmpio_list == NULL || (bufs+2) > journal->j_wbufsize) {
+                    //write out buffers
+                    int i;
+
+		    tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
+
+                    for (i=0; i<bufs; i++) {
+                        struct buffer_head* bh = wbuf[i];
+
+                        lock_buffer(bh);
+                        clear_buffer_dirty(bh);
+                        set_buffer_uptodate(bh);
+                        bh->b_end_io = journal_end_buffer_io_sync;
+                        submit_bh(WRITE_SYNC, wbuf[i]);
+                    }
+
+                    bufs = 0;
+                    mydescriptor = NULL;
+                }
+
+                count = 1;
+            }
+
+            J_ASSERT(commit_transaction->t_tmpsd_list == NULL);
+            //printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
+        }
+        //end
+
 	err = journal_finish_inode_data_buffers(journal, commit_transaction);
 	if (err) {
 		printk(KERN_WARNING
@@ -808,305 +973,6 @@ start_journal_io:
 	}
 
 	blk_finish_plug(&plug);
-
-        //wm add debug
-        //debug
-        //if (commit_transaction->t_tmpio_list) {
-        //    struct buffer_head* mybh;
-        //    struct journal_head* myjh;
-
-        //    while (commit_transaction->t_tmpio_list) {
-        //        myjh = commit_transaction->t_tmpio_list;
-        //        mybh = jh2bh(myjh);
-
-        //        myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, myjh);
-        //        jbd2_journal_put_journal_head(myjh);
-        //        if (mybh->b_data) 
-        //            jbd2_free(mybh->b_data, mybh->b_size);
-        //        __brelse(mybh);
-        //        J_ASSERT_BH(mybh, atomic_read(&mybh->b_count) == 0);
-        //        free_buffer_head(mybh);
-        //    }
-        //}
-        blk_start_plug(&plug);
-        if (commit_transaction->t_debug_tmpio_list) {
-            struct journal_head* debug_jh;
-            struct buffer_head* debug_bh;
-
-            mycount = 0;
-            descriptor = NULL; 
-            bufs = 0; 
-
-            while (commit_transaction->t_debug_tmpio_list) {
-
-                mycount++;
-
-                /* Find the next buffer to be journaled... */
-                debug_jh = commit_transaction->t_debug_tmpio_list;
-                debug_bh = jh2bh(debug_jh);
-
-                /* Make sure we have a descriptor block in which to
-                   record the metadata buffer. */
-                if (!descriptor) {
-                    struct buffer_head *bh;
-                    J_ASSERT (bufs == 0);
-
-                    descriptor = jbd2_journal_get_descriptor_buffer(journal);
-                    if (!descriptor) {
-                        jbd2_journal_abort(journal, -EIO);
-                        continue;
-                    }
-
-                    bh = jh2bh(descriptor);
-                    jbd_debug(4, "JBD2: got buffer %llu (%p)\n",
-                            (unsigned long long)bh->b_blocknr, bh->b_data);
-                    header = (journal_header_t *)&bh->b_data[0];
-                    header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
-                    header->h_blocktype = cpu_to_be32(JBD2_TEST_BLOCK);
-                    header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
-
-                    tagp = &bh->b_data[sizeof(journal_header_t)];
-                    space_left = bh->b_size - sizeof(journal_header_t);
-                    first_tag = 1;
-                    set_buffer_jwrite(bh);
-                    set_buffer_dirty(bh);
-                    wbuf[bufs++] = bh;
-		}
-
-		/* Record the new block's tag in the current descriptor
-                   buffer */
-
-		tag_flag = 0;
-		if (debug_jh->b_log_diff & 2)
-			tag_flag |= JBD2_FLAG_ESCAPE;
-		if (!first_tag)
-			tag_flag |= JBD2_FLAG_SAME_UUID;
-
-		tag = (journal_block_tag_t *) tagp;
-		write_tag_block(tag_bytes, tag, debug_bh->b_blocknr);
-		tag->t_flags = cpu_to_be16(tag_flag);
-		jbd2_block_tag_csum_set(journal, tag, debug_bh,
-					commit_transaction->t_tid);
-		tagp += tag_bytes;
-		space_left -= tag_bytes;
-
-		if (first_tag) {
-			memcpy (tagp, journal->j_uuid, 16);
-			tagp += 16;
-			space_left -= 16;
-			first_tag = 0;
-		}
-
-		/* Where is the buffer to be written? */
-		err = jbd2_journal_next_log_block(journal, &blocknr);
-		/* If the block mapping failed, just abandon the buffer
-		   and repeat this loop: we'll fall into the
-		   refile-on-abort condition above. */
-		if (err) {
-			jbd2_journal_abort(journal, err);
-			continue;
-		}
-
-                debug_bh->b_blocknr = blocknr;
-                set_buffer_mapped(debug_bh);
-                set_buffer_dirty(debug_bh);
-                set_bit(BH_JWrite, &debug_bh->b_state);
-                wbuf[bufs++] = debug_bh;
-
-                myjbd2_blist_del_buffer(&commit_transaction->t_debug_tmpio_list, debug_jh);
-                myjbd2_blist_add_buffer(&commit_transaction->t_tmpsd_list, debug_jh);
-
-		/* If there's no more to do, or if the descriptor is full,
-		   let the IO rip! */
-
-		if (bufs == journal->j_wbufsize ||
-		    commit_transaction->t_debug_tmpio_list == NULL ||
-		    space_left < tag_bytes + 16 + csum_size) {
-
-			jbd_debug(4, "JBD2: Submit %d IOs\n", bufs);
-
-			/* Write an end-of-descriptor marker before
-                           submitting the IOs.  "tag" still points to
-                           the last tag we set up. */
-
-			tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
-
-			jbd2_descr_block_csum_set(journal, descriptor);
-
-			for (i = 0; i < bufs; i++) {
-				struct buffer_head *bh = wbuf[i];
-				/*
-				 * Compute checksum.
-				 */
-				if (JBD2_HAS_COMPAT_FEATURE(journal,
-					JBD2_FEATURE_COMPAT_CHECKSUM)) {
-					crc32_sum =
-					    jbd2_checksum_data(crc32_sum, bh);
-				}
-
-				lock_buffer(bh);
-				clear_buffer_dirty(bh);
-				set_buffer_uptodate(bh);
-				bh->b_end_io = journal_end_buffer_io_sync;
-				submit_bh(WRITE_SYNC, bh);
-			}
-
-			cond_resched();
-			stats.run.rs_blocks_logged += bufs;
-
-			/* Force a new descriptor to be generated next
-                           time round the loop. */
-			descriptor = NULL;
-			bufs = 0;
-		}
-            }
-
-            //printk("tid %u, %u entire block\n", commit_transaction->t_tid, mycount);
-        }
-
-        if (commit_transaction->t_tmpio_list) {
-            //printk(KERN_ALERT "myjbd2: enter merge block stage\n");
-            char* tagp = NULL;
-            journal_block_tag_t* tag;
-            int tag_flag;
-            unsigned long long blocknr;
-            int err;
-            int space_left = 0;
-            struct journal_head* jh;  //first jh in tmp io list
-            struct journal_head* jhp;
-            struct journal_head* jhi;
-            int count = 1;
-
-            bufs = 0;
-            mydescriptor = NULL;
-            mycount = 0;
-
-            while (commit_transaction->t_tmpio_list != NULL) {
-                jhi = jh = commit_transaction->t_tmpio_list;
-                jhp = jh->b_tnext;
-
-                J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
-
-                while (jh2bh(jhp)->b_data == NULL) {
-                    count++;
-                    jhp = jhp->b_tnext;
-                }
-                mycount += count;
-                
-                if (mydescriptor == NULL || space_left < count*tag_bytes) {
-                    
-                    if (bufs > 0) {
-                            // last tag
-                            tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
-                    }
-
-                    mydescriptor = jbd2_journal_get_descriptor_buffer(journal);
-                    if (!mydescriptor) {
-                        printk(KERN_ALERT "allocate descriptor for JBD2_TEST_BLOCK failed!\n");
-                        jbd2_journal_abort(journal, -EIO);
-                    }
-                    // header
-                    mybh = jh2bh(mydescriptor);
-                    header = (journal_header_t *)&mybh->b_data[0];
-                    header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
-                    header->h_blocktype = cpu_to_be32(JBD2_TEST_BLOCK);
-                    header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
-
-                    tagp = &mybh->b_data[sizeof(journal_header_t)];
-
-                    first_tag = 1;
-                    space_left = mybh->b_size - sizeof(journal_header_t);
-                    wbuf[bufs++] = mybh;
-                }
-
-                do {
-                    tag = (journal_block_tag_t *) tagp;
-                    tag_flag = 0;
-
-                    // fill tag
-                    write_tag_block(tag_bytes, tag, jh2bh(jhi)->b_blocknr);
-                    tag_flag |= JBD2_FLAG_LOG_DIFF;
-
-                    tagp += tag_bytes;
-                    space_left -= tag_bytes;
-
-                    if (first_tag) {
-                        J_ASSERT( jh == jhi );
-                        if (jhi->b_log_diff & 2) tag_flag |= JBD2_FLAG_ESCAPE;
-                        memcpy (tagp, journal->j_uuid, 16);
-                        tagp += 16;
-                        space_left -= 16;
-                        first_tag = 0;
-                    }
-                    else {
-                        tag_flag |= JBD2_FLAG_SAME_UUID;
-                    }
-
-                    tag->t_flags = cpu_to_be16(tag_flag);
-
-                    if (jhi != jh) {
-                        mybh = jh2bh(jhi);
-                        J_ASSERT_BH(mybh, mybh->b_data == NULL);
-
-                        myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jhi);
-                        jbd2_journal_put_journal_head(jhi);
-                        __brelse(mybh);
-                        J_ASSERT_BH(mybh, atomic_read(&mybh->b_count) == 0);
-                        free_buffer_head(mybh);
-                    }
-
-                    jhi = jh->b_tnext;
-                } while (jhi != jhp);
-
-                tag->t_flags |= cpu_to_be16(JBD2_FLAG_MERGE_LAST);
-
-                J_ASSERT_JH(jh, jh2bh(jh)->b_data != NULL);
-                J_ASSERT_JH(jh, buffer_mapped(jh2bh(jh)));
-                jbd2_journal_next_log_block(journal, &blocknr);
-                jh2bh(jh)->b_blocknr = blocknr;
-                wbuf[bufs++] = jh2bh(jh);
-
-                //debug
-                //if (1) {
-                //    struct buffer_head* obh;
-                //    //obh = __getblk(journal->j_fs_dev, blocknr, journal->j_blocksize);
-                //    obh = jh2bh(jh);
-                //    //printk(KERN_ALERT "tid is %u\n", commit_transaction->t_tid);
-                //    //printk(KERN_ALERT "bitmap %32ph\n", obh->b_data);
-                //    //brelse(obh);
-                //}
-
-                // insert jh to tmp shadow list
-                myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jh);
-                myjbd2_blist_add_buffer(&commit_transaction->t_tmpsd_list, jh);
-
-                if (commit_transaction->t_tmpio_list == NULL || (bufs+2) > journal->j_wbufsize) {
-                    //write out buffers
-                    int i;
-
-		    tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
-
-                    for (i=0; i<bufs; i++) {
-                        struct buffer_head* bh = wbuf[i];
-
-                        lock_buffer(bh);
-                        clear_buffer_dirty(bh);
-                        set_buffer_uptodate(bh);
-                        bh->b_end_io = journal_end_buffer_io_sync;
-                        submit_bh(WRITE_SYNC, wbuf[i]);
-                    }
-
-                    bufs = 0;
-                    mydescriptor = NULL;
-                }
-
-                count = 1;
-            }
-
-            //printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
-        }
-	blk_finish_plug(&plug);
-        //end
 
 	/* Lo and behold: we have just managed to send a transaction to
            the log.  Before we can commit it, wait for the IO so far to
