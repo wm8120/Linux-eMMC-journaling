@@ -776,7 +776,6 @@ start_journal_io:
             char* tagp = NULL;
             journal_block_tag_t* tag;
             int tag_flag;
-            unsigned long long blocknr;
             int space_left = 0;
             struct journal_head* jh;  //first jh in tmp io list
             struct journal_head* jhp; //next jh with merged data
@@ -850,23 +849,25 @@ start_journal_io:
                         tagp += 16;
                         space_left -= 16;
                         first_tag = 0;
-                    }
-                    else {
+                    } else {
                         tag_flag |= JBD2_FLAG_SAME_UUID;
                     }
 
                     tag->t_flags = cpu_to_be16(tag_flag);
 
-                    //link jhi from t_tmpio_list to t_iobuf_list
-                    myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jhi);
-                    J_ASSERT_JH(jhi, jhi->b_jcount == 0);
-                    jbd2_journal_file_buffer(jhi, commit_transaction, BJ_IO);
+                    if (jhi != jh) {
+                        //link jhi from t_tmpio_list to t_iobuf_list
+                        myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jhi);
+                        J_ASSERT_JH(jhi, jhi->b_jcount == 1);
+                        J_ASSERT_JH(jhi, jhi->b_transaction == NULL);
+                        jbd2_journal_file_buffer(jhi, commit_transaction, BJ_IO);
 
-                    //link jhsdi to t_shadow_list
-                    jbd2_journal_file_buffer(jhsdi, commit_transaction, BJ_Shadow);
+                        //link jhsdi to t_shadow_list
+                        jbd2_journal_file_buffer(jhsdi, commit_transaction, BJ_Shadow);
+                    }
 
-                    jhi = commit_transaction->t_tmpio_list;
-                    jhsdi = commit_transaction->t_tmpsd_list;
+                    jhi = jh->b_tnext;
+                    jhsdi = jhsd->b_tnext;
                 } while (jhi != jhp);
 
                 tag->t_flags |= cpu_to_be16(JBD2_FLAG_MERGE_LAST);
@@ -877,6 +878,13 @@ start_journal_io:
                 jh2bh(jh)->b_blocknr = blocknr;
                 wbuf[bufs++] = jh2bh(jh);
 
+                //link jh to BJ_IO, link jhsd to BJ_Shadow
+                myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jh);
+                J_ASSERT_JH(jh, jh->b_jcount == 1);
+                J_ASSERT_JH(jh, jh->b_transaction == NULL);
+                jbd2_journal_file_buffer(jh, commit_transaction, BJ_IO);
+                jbd2_journal_file_buffer(jhsd, commit_transaction, BJ_Shadow);
+
                 //debug
                 //if (1) {
                 //    struct buffer_head* obh;
@@ -886,10 +894,6 @@ start_journal_io:
                 //    //printk(KERN_ALERT "bitmap %32ph\n", obh->b_data);
                 //    //brelse(obh);
                 //}
-
-                // insert jh to tmp shadow list
-                myjbd2_blist_del_buffer(&commit_transaction->t_tmpio_list, jh);
-                myjbd2_blist_add_buffer(&commit_transaction->t_tmpsd_list, jh);
 
                 if (commit_transaction->t_tmpio_list == NULL || (bufs+2) > journal->j_wbufsize) {
                     //write out buffers
