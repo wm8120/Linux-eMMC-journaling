@@ -998,30 +998,40 @@ start_journal_io:
 wait_for_iobuf:
 	while (commit_transaction->t_iobuf_list != NULL) {
 		struct buffer_head *bh;
+                int log_diff = 0;
 
 		jh = commit_transaction->t_iobuf_list->b_tprev;
 		bh = jh2bh(jh);
-		if (buffer_locked(bh)) {
-			wait_on_buffer(bh);
-			goto wait_for_iobuf;
-		}
-		if (cond_resched())
-			goto wait_for_iobuf;
 
-		if (unlikely(!buffer_uptodate(bh)))
-			err = -EIO;
+                if (bh->b_data != NULL) {
+                    if (buffer_locked(bh)) {
+                        wait_on_buffer(bh);
+                        goto wait_for_iobuf;
+                    }
+                    if (cond_resched())
+                        goto wait_for_iobuf;
+
+                    if (unlikely(!buffer_uptodate(bh)))
+                        err = -EIO;
+                }
 
 		clear_buffer_jwrite(bh);
 
 		JBUFFER_TRACE(jh, "ph4: unfile after journal write");
 		jbd2_journal_unfile_buffer(journal, jh);
 
+                //clean up merged data
+                if (jh->b_log_diff & 1) {
+                    jbd2_free(bh->b_data, bh->b_size);
+                    log_diff = 1;
+                }
+
 		/*
 		 * ->t_iobuf_list should contain only dummy buffer_heads
 		 * which were created by jbd2_journal_write_metadata_buffer().
 		 */
 		BUFFER_TRACE(bh, "dumping temporary bh");
-		jbd2_journal_put_journal_head(jh);
+		jbd2_journal_put_journal_head(jh); // jh is freed
 		__brelse(bh);
 		J_ASSERT_BH(bh, atomic_read(&bh->b_count) == 0);
 		free_buffer_head(bh);
@@ -1032,6 +1042,9 @@ wait_for_iobuf:
 		bh = jh2bh(jh);
 		clear_bit(BH_JWrite, &bh->b_state);
 		J_ASSERT_BH(bh, buffer_jbddirty(bh));
+
+                if (log_diff) 
+                    J_ASSERT_JH(jh, (jh->b_log_diff & 1) != 0);
 
 		/* The metadata is now released for reuse, but we need
                    to remember it against this transaction so that when

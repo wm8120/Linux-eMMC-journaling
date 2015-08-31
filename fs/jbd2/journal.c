@@ -496,6 +496,7 @@ repeat:
 
                 set_bh_page(new_bh, merge_page, merge_offset);
                 new_jh->b_transaction = NULL;
+                new_jh->b_log_diff = 1; //mark it for clean up the merged data
                 new_bh->b_blocknr = bh_in->b_blocknr;
                 new_bh->b_size = jsize;
                 new_bh->b_bdev = transaction->t_journal->j_dev;
