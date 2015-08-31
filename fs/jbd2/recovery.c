@@ -556,7 +556,8 @@ static int do_one_pass(journal_t *journal,
 
 		switch(blocktype) {
                 //wm add debug
-                case JBD2_TEST_BLOCK:
+                //case JBD2_TEST_BLOCK:
+                case JBD2_DESCRIPTOR_BLOCK:
 
 			/* Verify checksum first */
 			if (JBD2_HAS_INCOMPAT_FEATURE(journal,
@@ -691,8 +692,9 @@ start_next_tag:
                                                 jbd2_for_each_set_bit(i, bitmap, bitmap_size*8) {
                                                     J_ASSERT(datap - obh->b_data + sizeof(jbd2_unit_t) <= obh->b_size);
                                                     J_ASSERT((i+1)*sizeof(jbd2_unit_t) <= nbh->b_size);
-                                                    jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
-                                                    BUG_ON(*((jbd2_unit_t *) datap) != recovered);
+                                                    *((jbd2_unit_t*) (nbh->b_data + i*sizeof(jbd2_unit_t))) = *((jbd2_unit_t*) datap);
+                                                    //jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
+                                                    //BUG_ON(*((jbd2_unit_t *) datap) != recovered);
                                                     //if (*((jbd2_unit_t *) datap) != recovered) {
                                                     //    printk(KERN_ALERT "datap is %4ph, recovered data is %4ph\n", ((jbd2_unit_t*) datap), &recovered);
                                                     //} else {
@@ -703,8 +705,8 @@ start_next_tag:
                                             
                                             }
                                             else {
-                                                int i=0;
-                                                size_t unit = sizeof(u32);
+                                                //int i=0;
+                                                //size_t unit = sizeof(u32);
 
                                                 //while (i*sizeof(u32) < journal->j_blocksize) {
                                                 //    J_ASSERT((i+1)*sizeof(u32) <= journal->j_blocksize);
@@ -714,8 +716,7 @@ start_next_tag:
                                                 //    }
                                                 //    i++;
                                                 //}
-                                                //memcpy(nbh->b_data, obh->b_data,
-                                                 //       journal->j_blocksize);
+                                                memcpy(nbh->b_data, obh->b_data, journal->j_blocksize);
                                             }
 
                                             BUFFER_TRACE(nbh, "marking dirty");
@@ -772,152 +773,152 @@ debug_skip_write:
                         brelse(bh);
                         continue;
 
-                case JBD2_DESCRIPTOR_BLOCK:
-                        /* Verify checksum first */
-                        if (JBD2_HAS_INCOMPAT_FEATURE(journal,
-                                    JBD2_FEATURE_INCOMPAT_CSUM_V2))
-                            descr_csum_size =
-                                sizeof(struct jbd2_journal_block_tail);
-                        if (descr_csum_size > 0 &&
-                                !jbd2_descr_block_csum_verify(journal,
-                                    bh->b_data)) {
-                            err = -EIO;
-                            //wm add debug
-                            printk(KERN_ALERT "recovery csum fail\n");
-                            goto failed;
-                        }
+                //case JBD2_DESCRIPTOR_BLOCK:
+                //        /* Verify checksum first */
+                //        if (JBD2_HAS_INCOMPAT_FEATURE(journal,
+                //                    JBD2_FEATURE_INCOMPAT_CSUM_V2))
+                //            descr_csum_size =
+                //                sizeof(struct jbd2_journal_block_tail);
+                //        if (descr_csum_size > 0 &&
+                //                !jbd2_descr_block_csum_verify(journal,
+                //                    bh->b_data)) {
+                //            err = -EIO;
+                //            //wm add debug
+                //            printk(KERN_ALERT "recovery csum fail\n");
+                //            goto failed;
+                //        }
 
-                        /* If it is a valid descriptor block, replay it
-                         * in pass REPLAY; if journal_checksums enabled, then
-                         * calculate checksums in PASS_SCAN, otherwise,
-                         * just skip over the blocks it describes. */
-                        if (pass != PASS_REPLAY) {
-                            if (pass == PASS_SCAN &&
-                                    JBD2_HAS_COMPAT_FEATURE(journal,
-                                        JBD2_FEATURE_COMPAT_CHECKSUM) &&
-                                    !info->end_transaction) {
-                                if (calc_chksums(journal, bh,
-                                            &next_log_block,
-                                            &crc32_sum)) {
-                                    put_bh(bh);
-                                    break;
-                                }
-                                put_bh(bh);
-                                continue;
-                            }
-                            next_log_block += count_tags(journal, bh);
-                            wrap(journal, next_log_block);
-                            put_bh(bh);
-                            continue;
-                        }
+                //        /* If it is a valid descriptor block, replay it
+                //         * in pass REPLAY; if journal_checksums enabled, then
+                //         * calculate checksums in PASS_SCAN, otherwise,
+                //         * just skip over the blocks it describes. */
+                //        if (pass != PASS_REPLAY) {
+                //            if (pass == PASS_SCAN &&
+                //                    JBD2_HAS_COMPAT_FEATURE(journal,
+                //                        JBD2_FEATURE_COMPAT_CHECKSUM) &&
+                //                    !info->end_transaction) {
+                //                if (calc_chksums(journal, bh,
+                //                            &next_log_block,
+                //                            &crc32_sum)) {
+                //                    put_bh(bh);
+                //                    break;
+                //                }
+                //                put_bh(bh);
+                //                continue;
+                //            }
+                //            next_log_block += count_tags(journal, bh);
+                //            wrap(journal, next_log_block);
+                //            put_bh(bh);
+                //            continue;
+                //        }
 
-                        /* A descriptor block: we can now write all of
-                         * the data blocks.  Yay, useful work is finally
-                         * getting done here! */
+                //        /* A descriptor block: we can now write all of
+                //         * the data blocks.  Yay, useful work is finally
+                //         * getting done here! */
 
-                        tagp = &bh->b_data[sizeof(journal_header_t)];
-                        while ((tagp - bh->b_data + tag_bytes)
-                                <= journal->j_blocksize - descr_csum_size) {
-                            unsigned long io_block;
+                //        tagp = &bh->b_data[sizeof(journal_header_t)];
+                //        while ((tagp - bh->b_data + tag_bytes)
+                //                <= journal->j_blocksize - descr_csum_size) {
+                //            unsigned long io_block;
 
-                            tag = (journal_block_tag_t *) tagp;
-                            flags = be16_to_cpu(tag->t_flags);
+                //            tag = (journal_block_tag_t *) tagp;
+                //            flags = be16_to_cpu(tag->t_flags);
 
-                            // wm add debug
-                            if (flags & JBD2_FLAG_LOG_DIFF) {
-                                printk(KERN_ALERT "myjbd2: skip this buffer, "
-                                        "the blocknr is %llu\n", read_tag_block(tag_bytes, tag));
-                                goto skip_write;
-                            }
-                            //end
+                //            // wm add debug
+                //            if (flags & JBD2_FLAG_LOG_DIFF) {
+                //                printk(KERN_ALERT "myjbd2: skip this buffer, "
+                //                        "the blocknr is %llu\n", read_tag_block(tag_bytes, tag));
+                //                goto skip_write;
+                //            }
+                //            //end
 
-                            io_block = next_log_block++;
-                            wrap(journal, next_log_block);
-                            err = jread(&obh, journal, io_block);
-                            if (err) {
-                                /* Recover what we can, but
-                                 * report failure at the end. */
-                                success = err;
-                                printk(KERN_ERR
-                                        "JBD2: IO error %d recovering "
-                                        "block %ld in log\n",
-                                        err, io_block);
-                            } else {
-                                unsigned long long blocknr;
+                //            io_block = next_log_block++;
+                //            wrap(journal, next_log_block);
+                //            err = jread(&obh, journal, io_block);
+                //            if (err) {
+                //                /* Recover what we can, but
+                //                 * report failure at the end. */
+                //                success = err;
+                //                printk(KERN_ERR
+                //                        "JBD2: IO error %d recovering "
+                //                        "block %ld in log\n",
+                //                        err, io_block);
+                //            } else {
+                //                unsigned long long blocknr;
 
-                                J_ASSERT(obh != NULL);
-                                blocknr = read_tag_block(tag_bytes,
-                                        tag);
+                //                J_ASSERT(obh != NULL);
+                //                blocknr = read_tag_block(tag_bytes,
+                //                        tag);
 
-                                /* If the block has been
-                                 * revoked, then we're all done
-                                 * here. */
-                                if (jbd2_journal_test_revoke
-                                        (journal, blocknr,
-                                         next_commit_ID)) {
-                                    brelse(obh);
-                                    ++info->nr_revoke_hits;
-                                    goto skip_write;
-                                }
+                //                /* If the block has been
+                //                 * revoked, then we're all done
+                //                 * here. */
+                //                if (jbd2_journal_test_revoke
+                //                        (journal, blocknr,
+                //                         next_commit_ID)) {
+                //                    brelse(obh);
+                //                    ++info->nr_revoke_hits;
+                //                    goto skip_write;
+                //                }
 
-                                /* Look for block corruption */
-                                if (!jbd2_block_tag_csum_verify(
-                                            journal, tag, obh->b_data,
-                                            be32_to_cpu(tmp->h_sequence))) {
-                                    brelse(obh);
-                                    success = -EIO;
-                                    printk(KERN_ERR "JBD: Invalid "
-                                            "checksum recovering "
-                                            "block %llu in log\n",
-                                            blocknr);
-                                    continue;
-                                }
+                //                /* Look for block corruption */
+                //                if (!jbd2_block_tag_csum_verify(
+                //                            journal, tag, obh->b_data,
+                //                            be32_to_cpu(tmp->h_sequence))) {
+                //                    brelse(obh);
+                //                    success = -EIO;
+                //                    printk(KERN_ERR "JBD: Invalid "
+                //                            "checksum recovering "
+                //                            "block %llu in log\n",
+                //                            blocknr);
+                //                    continue;
+                //                }
 
-                                /* Find a buffer for the new
-                                 * data being restored */
-                                nbh = __getblk(journal->j_fs_dev,
-                                        blocknr,
-                                        journal->j_blocksize);
-                                if (nbh == NULL) {
-                                    printk(KERN_ERR
-                                            "JBD2: Out of memory "
-                                            "during recovery.\n");
-                                    err = -ENOMEM;
-                                    brelse(bh);
-                                    brelse(obh);
-                                    goto failed;
-                                }
+                //                /* Find a buffer for the new
+                //                 * data being restored */
+                //                nbh = __getblk(journal->j_fs_dev,
+                //                        blocknr,
+                //                        journal->j_blocksize);
+                //                if (nbh == NULL) {
+                //                    printk(KERN_ERR
+                //                            "JBD2: Out of memory "
+                //                            "during recovery.\n");
+                //                    err = -ENOMEM;
+                //                    brelse(bh);
+                //                    brelse(obh);
+                //                    goto failed;
+                //                }
 
-                                lock_buffer(nbh);
-                                memcpy(nbh->b_data, obh->b_data,
-                                        journal->j_blocksize);
-                                if (flags & JBD2_FLAG_ESCAPE) {
-                                    *((__be32 *)nbh->b_data) =
-                                        cpu_to_be32(JBD2_MAGIC_NUMBER);
-                                }
+                //                lock_buffer(nbh);
+                //                memcpy(nbh->b_data, obh->b_data,
+                //                        journal->j_blocksize);
+                //                if (flags & JBD2_FLAG_ESCAPE) {
+                //                    *((__be32 *)nbh->b_data) =
+                //                        cpu_to_be32(JBD2_MAGIC_NUMBER);
+                //                }
 
-                                BUFFER_TRACE(nbh, "marking dirty");
-                                set_buffer_uptodate(nbh);
-                                mark_buffer_dirty(nbh);
-                                BUFFER_TRACE(nbh, "marking uptodate");
-                                ++info->nr_replays;
-                                /* ll_rw_block(WRITE, 1, &nbh); */
-                                unlock_buffer(nbh);
-                                brelse(obh);
-                                brelse(nbh);
-                            }
+                //                BUFFER_TRACE(nbh, "marking dirty");
+                //                set_buffer_uptodate(nbh);
+                //                mark_buffer_dirty(nbh);
+                //                BUFFER_TRACE(nbh, "marking uptodate");
+                //                ++info->nr_replays;
+                //                /* ll_rw_block(WRITE, 1, &nbh); */
+                //                unlock_buffer(nbh);
+                //                brelse(obh);
+                //                brelse(nbh);
+                //            }
 
-skip_write:
-                            tagp += tag_bytes;
-                            if (!(flags & JBD2_FLAG_SAME_UUID))
-                                tagp += 16;
+//skip_write:
+                //            tagp += tag_bytes;
+                //            if (!(flags & JBD2_FLAG_SAME_UUID))
+                //                tagp += 16;
 
-                            if (flags & JBD2_FLAG_LAST_TAG)
-                                break;
-                        }
+                //            if (flags & JBD2_FLAG_LAST_TAG)
+                //                break;
+                //        }
 
-                        brelse(bh);
-                        continue;
+                //        brelse(bh);
+                //        continue;
 
                 case JBD2_COMMIT_BLOCK:
                         /*     How to differentiate between interrupted commit

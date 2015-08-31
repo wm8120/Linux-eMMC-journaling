@@ -818,7 +818,7 @@ start_journal_io:
                     mybh = jh2bh(mydescriptor);
                     header = (journal_header_t *)&mybh->b_data[0];
                     header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
-                    header->h_blocktype = cpu_to_be32(JBD2_TEST_BLOCK);
+                    header->h_blocktype = cpu_to_be32(JBD2_DESCRIPTOR_BLOCK);
                     header->h_sequence  = cpu_to_be32(commit_transaction->t_tid);
 
                     tagp = &mybh->b_data[sizeof(journal_header_t)];
