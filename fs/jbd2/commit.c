@@ -1213,7 +1213,7 @@ restart_loop:
 
 		spin_lock(&journal->j_list_lock);
 		cp_transaction = jh->b_cp_transaction;
-		if (cp_transaction) {
+		if (cp_transaction && (jh->b_log_diff & 1) == 0) {
 			JBUFFER_TRACE(jh, "remove from old cp transaction");
 			cp_transaction->t_chp_stats.cs_dropped++;
 			__jbd2_journal_remove_checkpoint(jh);
