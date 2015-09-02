@@ -1327,10 +1327,11 @@ static inline int jbd_space_needed(journal_t *journal)
 #define BJ_Shadow	4	/* Buffer contents being shadowed to the log */
 #define BJ_LogCtl	5	/* Buffer contains log descriptors */
 #define BJ_Reserved	6	/* Buffer is reserved for access by journal */
-#define BJ_Types	7
+//#define BJ_Types	7
 //wm add
-#define BJ_IO_Temp      9       /* prepare to add to BJ_IO */
-#define BJ_Sd_Temp      9       /* prepare to add to BJ_Shadow */
+#define BJ_IO_Temp      7       /* prepare to add to BJ_IO */
+#define BJ_Shadow_Temp  8       /* prepare to add to BJ_Shadow */
+#define BJ_Types	9
 
 static inline void
 myjbd2_blist_add_buffer(struct journal_head **list, struct journal_head *jh)

@@ -591,6 +591,8 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 		   release it. */
 
 		if (is_journal_aborted(journal)) {
+                        //wm debug
+                        BUG_ON(1);
 			clear_buffer_jbddirty(jh2bh(jh));
 			JBUFFER_TRACE(jh, "journal is aborting: refile");
 			jbd2_buffer_abort_trigger(jh,
@@ -626,6 +628,9 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 			bh = jh2bh(descriptor);
 			jbd_debug(4, "JBD2: got buffer %llu (%p)\n",
 				(unsigned long long)bh->b_blocknr, bh->b_data);
+                        //wm debug
+                        //printk(KERN_ALERT "descriptor buffer blocknr %llu\n", bh->b_blocknr);
+
 			header = (journal_header_t *)&bh->b_data[0];
 			header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
 			header->h_blocktype = cpu_to_be32(JBD2_DESCRIPTOR_BLOCK);
@@ -694,6 +699,8 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 
 		tag = (journal_block_tag_t *) tagp;
 		write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr);
+                //wm debug
+                //printk(KERN_ALERT "logged blocknr is %llu\n", jh2bh(jh)->b_blocknr);
 		tag->t_flags = cpu_to_be16(tag_flag);
 		jbd2_block_tag_csum_set(journal, tag, jh2bh(new_jh),
 					commit_transaction->t_tid);
@@ -816,6 +823,8 @@ start_journal_io:
                     }
                     // header
                     mybh = jh2bh(mydescriptor);
+                    //wm debug
+                    //printk(KERN_ALERT "partial log descriptor blocknr is %llu\n", mybh->b_blocknr);
                     header = (journal_header_t *)&mybh->b_data[0];
                     header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
                     header->h_blocktype = cpu_to_be32(JBD2_DESCRIPTOR_BLOCK);
@@ -837,6 +846,8 @@ start_journal_io:
 
                     // fill tag
                     write_tag_block(tag_bytes, tag, jh2bh(jhi)->b_blocknr);
+                    //wm debug
+                    //printk(KERN_ALERT "tid: %u, partial log blocknr is %llu\n", commit_transaction->t_tid, jh2bh(jhi)->b_blocknr);
                     tag_flag |= JBD2_FLAG_LOG_DIFF;
 
                     tagp += tag_bytes;
@@ -863,6 +874,8 @@ start_journal_io:
                         jbd2_journal_file_buffer(jhi, commit_transaction, BJ_IO);
 
                         //link jhsdi to t_shadow_list
+                        myjbd2_blist_del_buffer(&commit_transaction->t_tmpsd_list, jhsdi);
+                        J_ASSERT_JH(jhsdi, jhsdi->b_transaction == commit_transaction);
                         jbd2_journal_file_buffer(jhsdi, commit_transaction, BJ_Shadow);
                     }
 
@@ -876,6 +889,8 @@ start_journal_io:
                 J_ASSERT_JH(jh, buffer_mapped(jh2bh(jh)));
                 jbd2_journal_next_log_block(journal, &blocknr);
                 jh2bh(jh)->b_blocknr = blocknr;
+                //wm debug
+                //printk(KERN_ALERT "tid: %u, partial log stores in blocknr %llu\n", commit_transaction->t_tid, blocknr);
                 wbuf[bufs++] = jh2bh(jh);
 
                 //link jh to BJ_IO, link jhsd to BJ_Shadow
@@ -883,6 +898,9 @@ start_journal_io:
                 J_ASSERT_JH(jh, jh->b_jcount == 1);
                 J_ASSERT_JH(jh, jh->b_transaction == NULL);
                 jbd2_journal_file_buffer(jh, commit_transaction, BJ_IO);
+
+                myjbd2_blist_del_buffer(&commit_transaction->t_tmpsd_list, jhsd);
+                J_ASSERT_JH(jhsd, jhsd->b_transaction == commit_transaction);
                 jbd2_journal_file_buffer(jhsd, commit_transaction, BJ_Shadow);
 
                 //debug

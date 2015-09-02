@@ -537,17 +537,19 @@ repeat:
             merge_start += jh_in->b_bitmap_size;
 
             // copy changed bytes
-            //ccount = 0;
-            //jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
-            //    ccount++;
-            //}
-            //printk(KERN_ALERT "2 bitmap %32ph\tcount=%u\n", jh_in->b_bitmap, ccount);
-            //J_ASSERT(ccount == count);
+            ccount = 0;
+            jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
+                ccount++;
+            }
+            //wm debug
+            //printk(KERN_ALERT "blocknr is %llu\n", bh_in->b_blocknr);
+            //printk(KERN_ALERT "bitmap %32ph\tcount=%u\n", jh_in->b_bitmap, ccount);
+            J_ASSERT(ccount == count);
             jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
                 J_ASSERT((i+1)*unit <= jsize);
                 J_ASSERT(merge_start + unit <= merge_data + merge_offset + jsize);
                 memcpy(merge_start, old_start+i*unit, unit);
-                // printk(KERN_ALERT "copy change %4ph\n", (void *)merge_start);
+                //printk(KERN_ALERT "copy change %4ph\n", (void *)merge_start);
                 merge_start += unit;
             }
 
@@ -574,11 +576,9 @@ repeat:
             // link jh_in to tmpsd, set b_jlist = BJ_Shadow
             J_ASSERT(jh_in->b_transaction);
             spin_lock(&journal->j_list_lock);
-            myjbd2_journal_temp_unlink_buffer(jh_in);
+            __jbd2_journal_file_buffer(jh_in, transaction, BJ_Shadow_Temp);
             spin_unlock(&journal->j_list_lock);
-            myjbd2_blist_add_buffer(&transaction->t_tmpsd_list, jh_in);
-            jh_in->b_jlist = BJ_Shadow;
-
+            jbd_unlock_bh_state(bh_in);
         } else {
 no_merge:
             jh_in->b_log_diff = 0; // clean up the historical info
@@ -593,6 +593,8 @@ no_merge:
                 free_buffer_head(new_bh);
                 return -EIO;
             }
+            //wm debug
+            //printk(KERN_ALERT "blocknr in journal is %llu\n", blocknr);
 
             mapped_data = kmap_atomic(new_page);
             /*

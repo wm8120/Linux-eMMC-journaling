@@ -843,7 +843,7 @@ repeat:
 		 * journaled.  If the primary copy is already going to
 		 * disk then we cannot do copy-out here. */
 
-		if (jh->b_jlist == BJ_Shadow) {
+		if (jh->b_jlist == BJ_Shadow || jh->b_jlist == BJ_Shadow_Temp) {
 			DEFINE_WAIT_BIT(wait, &bh->b_state, BH_Unshadow);
 			wait_queue_head_t *wqh;
 
@@ -855,7 +855,7 @@ repeat:
 			for ( ; ; ) {
 				prepare_to_wait(wqh, &wait.wait,
 						TASK_UNINTERRUPTIBLE);
-				if (jh->b_jlist != BJ_Shadow)
+				if (jh->b_jlist != BJ_Shadow && jh->b_jlist != BJ_Shadow_Temp)
 					break;
 				schedule();
 			}
@@ -1740,6 +1740,9 @@ static void __jbd2_journal_temp_unlink_buffer(struct journal_head *jh)
 	case BJ_Reserved:
 		list = &transaction->t_reserved_list;
 		break;
+        case BJ_Shadow_Temp:
+                list = &transaction->t_tmpsd_list;
+                break;
 	}
 
 	__blist_del_buffer(list, jh);
@@ -2203,7 +2206,7 @@ void __jbd2_journal_file_buffer(struct journal_head *jh,
 		return;
 
 	if (jlist == BJ_Metadata || jlist == BJ_Reserved ||
-	    jlist == BJ_Shadow || jlist == BJ_Forget) {
+	    jlist == BJ_Shadow || jlist == BJ_Forget || jlist == BJ_Shadow_Temp) {
 		/*
 		 * For metadata buffers, we track dirty bit in buffer_jbddirty
 		 * instead of buffer_dirty. We should not see a dirty bit set
@@ -2248,6 +2251,9 @@ void __jbd2_journal_file_buffer(struct journal_head *jh,
 	case BJ_Reserved:
 		list = &transaction->t_reserved_list;
 		break;
+        case BJ_Shadow_Temp:
+                list = &transaction->t_tmpsd_list; 
+                break;
 	}
 
 	__blist_add_buffer(list, jh);

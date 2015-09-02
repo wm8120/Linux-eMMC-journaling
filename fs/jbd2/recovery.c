@@ -603,6 +603,8 @@ start_next_tag:
 				flags = be16_to_cpu(tag->t_flags);
 
                                 io_block = next_log_block++;
+                                //wm debug
+                                //printk(KERN_ALERT "io blocknr is %llu\n", io_block);
 				wrap(journal, next_log_block);
 				err = jread(&obh, journal, io_block);
                                 datap = obh->b_data;
@@ -656,7 +658,6 @@ start_next_tag:
 
                                             /* Find a buffer for the new
                                              * data being restored */
-                                            //printk(KERN_ALERT "__getblk\n");
                                             nbh = __getblk(journal->j_fs_dev,
                                                     blocknr,
                                                     journal->j_blocksize);
@@ -688,11 +689,15 @@ start_next_tag:
                                                 bitmap = (unsigned long*) datap;
                                                 datap += bitmap_size;
                                                 
+                                                //wm debug
+                                                //printk(KERN_ALERT "tid: %u, parital recovery, nbh blocknr is %llu\n", sequence, nbh->b_blocknr);
                                                 //printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
                                                 jbd2_for_each_set_bit(i, bitmap, bitmap_size*8) {
                                                     J_ASSERT(datap - obh->b_data + sizeof(jbd2_unit_t) <= obh->b_size);
                                                     J_ASSERT((i+1)*sizeof(jbd2_unit_t) <= nbh->b_size);
-                                                    *((jbd2_unit_t*) (nbh->b_data + i*sizeof(jbd2_unit_t))) = *((jbd2_unit_t*) datap);
+                                                    memcpy(nbh->b_data + i*sizeof(jbd2_unit_t), datap, sizeof(jbd2_unit_t));
+                                                    //*((jbd2_unit_t*) (nbh->b_data + i*sizeof(jbd2_unit_t))) = *((jbd2_unit_t*) datap);
+                                                    //printk(KERN_ALERT "recovered data is %4ph\n", (jbd2_unit_t*) datap);
                                                     //jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
                                                     //BUG_ON(*((jbd2_unit_t *) datap) != recovered);
                                                     //if (*((jbd2_unit_t *) datap) != recovered) {
@@ -703,8 +708,9 @@ start_next_tag:
                                                     datap += sizeof(jbd2_unit_t);
                                                 }
                                             
-                                            }
-                                            else {
+                                            } else {
+                                                //wm debug
+                                                //printk(KERN_ALERT "tid: %u, nbh blocknr is %u\n", sequence, nbh->b_blocknr);
                                                 //int i=0;
                                                 //size_t unit = sizeof(u32);
 
@@ -742,6 +748,8 @@ skip_merge_write:
                                         } while (flags & JBD2_FLAG_LOG_DIFF && 
                                             !(flags & JBD2_FLAG_MERGE_LAST));
 
+                                        //wm debug
+                                        //printk(KERN_ALERT "tid: %u, paritial recovery of one journal block done\n", sequence);
                                         partial_count += mycount;
                                         mycount = 0;
 
@@ -767,6 +775,8 @@ debug_skip_write:
                                     break;
                         }
 
+                        //wm debug
+                        //printk(KERN_ALERT "tid: %u, recovery for one descriptor block done\n", sequence);
                         //printk(KERN_ALERT "tid: %u, recovery entire block %u\n", sequence, entire_count);
                         //printk(KERN_ALERT "tid: %u, recovery partial block %u\n", sequence, partial_count);
 
