@@ -124,6 +124,15 @@ failed:
 
 #endif /* __KERNEL__ */
 
+static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
+{
+	BUFFER_TRACE(bh, "");
+	if (uptodate)
+		set_buffer_uptodate(bh);
+	else
+		clear_buffer_uptodate(bh);
+	unlock_buffer(bh);
+}
 
 /*
  * Read a block from the journal
@@ -670,6 +679,21 @@ start_next_tag:
                                                 brelse(obh);
                                                 goto failed;
                                             }
+                                            set_buffer_mapped(nbh);
+                                            nbh->b_end_io = journal_end_buffer_io_sync;
+                                            lock_buffer(nbh);
+                                            submit_bh(REQ_SYNC, nbh);
+
+cont_wait:
+                                            while(buffer_locked(nbh)) {
+                                                wait_on_buffer(nbh);
+                                                goto cont_wait;
+
+                                                if (unlikely(!buffer_uptodate(nbh)))
+                                                    BUG_ON(1);
+                                            }
+
+
 
                                             if (flags & JBD2_FLAG_ESCAPE) {
                                                 *((__be32 *)obh->b_data) =

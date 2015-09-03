@@ -1437,4 +1437,13 @@ restart_loop:
 	spin_unlock(&journal->j_list_lock);
 	write_unlock(&journal->j_state_lock);
 	wake_up(&journal->j_wait_done_commit);
+        //wm debug
+        if (1) {
+            struct buffer_head *bh;
+            int i = 0;
+            bh = __getblk(journal->j_fs_dev, 131105, journal->j_blocksize);
+            printk(KERN_ALERT "first 256 bytes of block %lu\n", bh->b_blocknr);
+            for (i=0; i<4; i++)
+                printk(KERN_ALERT "%64ph\n", bh->b_data+i*64);
+        }
 }
