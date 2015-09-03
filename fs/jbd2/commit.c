@@ -1291,7 +1291,7 @@ restart_loop:
 
 		if (buffer_jbddirty(bh)) {
 			JBUFFER_TRACE(jh, "add to new checkpointing trans");
-                        if (!cp_transaction) {
+                        if (!jh->b_cp_transaction) {
                             __jbd2_journal_insert_checkpoint(jh, commit_transaction);
                             if (is_journal_aborted(journal))
                                 clear_buffer_jbddirty(bh);
