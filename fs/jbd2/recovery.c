@@ -690,14 +690,28 @@ start_next_tag:
                                                 datap += bitmap_size;
                                                 
                                                 //wm debug
-                                                //printk(KERN_ALERT "tid: %u, parital recovery, nbh blocknr is %llu\n", sequence, nbh->b_blocknr);
-                                                //printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
+                                                if (nbh->b_blocknr == 131105) {
+                                                //if (1) {
+                                                    int i=0;
+                                                    struct page *page = virt_to_page(nbh->b_data);
+                                                    unsigned int offset = offset_in_page(nbh->b_data);
+                                                    char* mapped = kmap_atomic(page);
+                                                    char* startp = mapped + offset;
+                                                    printk(KERN_ALERT "tid: %u, parital recovery, nbh blocknr is %lu\n", sequence, nbh->b_blocknr);
+                                                    printk(KERN_ALERT "first 512 bytes are:\n");
+                                                    for (i=0; i<4; i++) 
+                                                        printk(KERN_ALERT "%64ph\n", startp+i*64);
+                                                    kunmap_atomic(mapped);
+                                                    printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
+                                                }
                                                 jbd2_for_each_set_bit(i, bitmap, bitmap_size*8) {
                                                     J_ASSERT(datap - obh->b_data + sizeof(jbd2_unit_t) <= obh->b_size);
                                                     J_ASSERT((i+1)*sizeof(jbd2_unit_t) <= nbh->b_size);
                                                     memcpy(nbh->b_data + i*sizeof(jbd2_unit_t), datap, sizeof(jbd2_unit_t));
                                                     //*((jbd2_unit_t*) (nbh->b_data + i*sizeof(jbd2_unit_t))) = *((jbd2_unit_t*) datap);
-                                                    //printk(KERN_ALERT "recovered data is %4ph\n", (jbd2_unit_t*) datap);
+                                                    if (nbh->b_blocknr == 131105) {
+                                                    printk(KERN_ALERT "recovered data is %4ph\n", (jbd2_unit_t*) datap);
+                                                    }
                                                     //jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
                                                     //BUG_ON(*((jbd2_unit_t *) datap) != recovered);
                                                     //if (*((jbd2_unit_t *) datap) != recovered) {
@@ -706,6 +720,21 @@ start_next_tag:
                                                     //    printk(KERN_ALERT "datap is %4ph, and it's same with recovered data\n", ((jbd2_unit_t*) datap));
                                                     //}
                                                     datap += sizeof(jbd2_unit_t);
+                                                }
+
+                                                //wm debug
+                                                if (nbh->b_blocknr == 131105) {
+                                                //if (1) {
+                                                    int i=0;
+                                                    struct page *page = virt_to_page(nbh->b_data);
+                                                    unsigned int offset = offset_in_page(nbh->b_data);
+                                                    char* mapped = kmap_atomic(page);
+                                                    char* startp = mapped + offset;
+                                                    printk(KERN_ALERT "tid: %u, parital recovery, nbh blocknr is %lu\n", sequence, nbh->b_blocknr);
+                                                    printk(KERN_ALERT "first 512 bytes are:\n");
+                                                    for (i=0; i<4; i++) 
+                                                        printk(KERN_ALERT "%64ph\n", startp+i*64);
+                                                    kunmap_atomic(mapped);
                                                 }
                                             
                                             } else {
@@ -777,8 +806,8 @@ debug_skip_write:
 
                         //wm debug
                         //printk(KERN_ALERT "tid: %u, recovery for one descriptor block done\n", sequence);
-                        //printk(KERN_ALERT "tid: %u, recovery entire block %u\n", sequence, entire_count);
-                        //printk(KERN_ALERT "tid: %u, recovery partial block %u\n", sequence, partial_count);
+                        printk(KERN_ALERT "tid: %u, recovery entire block %u\n", sequence, entire_count);
+                        printk(KERN_ALERT "tid: %u, recovery partial block %u\n", sequence, partial_count);
 
                         brelse(bh);
                         continue;

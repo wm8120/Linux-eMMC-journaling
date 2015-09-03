@@ -758,7 +758,7 @@ start_journal_io:
 			bufs = 0;
 		}
 	}
-        //printk("tid %u, %u journal block\n", commit_transaction->t_tid, mycount);
+        printk("tid %u, %u journal block\n", commit_transaction->t_tid, mycount);
 
         //wm add debug
         //if (commit_transaction->t_tmpio_list) {
@@ -937,7 +937,7 @@ start_journal_io:
             }
 
             J_ASSERT(commit_transaction->t_tmpsd_list == NULL);
-            //printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
+            printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
         }
         //end
 
@@ -1061,6 +1061,14 @@ wait_for_iobuf:
 		clear_bit(BH_JWrite, &bh->b_state);
 		J_ASSERT_BH(bh, buffer_jbddirty(bh));
 
+                //debug
+                if (bh->b_blocknr == 131105) {
+                    int i = 0;
+                    printk(KERN_ALERT "first 256 bytes of block %lu\n", bh->b_blocknr);
+                    for (i=0; i<4; i++)
+                        printk(KERN_ALERT "%64ph\n", bh->b_data+i*64);
+                }
+
                 if (log_diff) 
                     J_ASSERT_JH(jh, (jh->b_log_diff & 1) != 0);
 
@@ -1113,6 +1121,7 @@ wait_for_iobuf:
 
         //wm add debug
         i = 0;
+	J_ASSERT(commit_transaction->t_tmpsd_list == NULL);
         while (commit_transaction->t_tmpsd_list) {
             i++; 
             myjh = commit_transaction->t_tmpsd_list->b_tprev;
@@ -1179,6 +1188,7 @@ wait_for_iobuf:
 	J_ASSERT(commit_transaction->t_iobuf_list == NULL);
 	J_ASSERT(commit_transaction->t_shadow_list == NULL);
 	J_ASSERT(commit_transaction->t_log_list == NULL);
+	J_ASSERT(commit_transaction->t_tmpio_list == NULL);
 
 restart_loop:
 	/*
@@ -1228,6 +1238,16 @@ restart_loop:
 			jh->b_frozen_data = NULL;
 			jh->b_frozen_triggers = NULL;
 		}
+
+                //wm debug
+                if (jh2bh(jh)->b_blocknr == 131105) {
+                    printk(KERN_ALERT "1242\n");
+                    int i = 0;
+                    printk(KERN_ALERT "first 256 bytes of block %lu\n", jh2bh(jh)->b_blocknr);
+                    for (i=0; i<4; i++)
+                        printk(KERN_ALERT "%64ph\n", jh2bh(jh)->b_data+i*64);
+                }
+
 
 		spin_lock(&journal->j_list_lock);
 		cp_transaction = jh->b_cp_transaction;
@@ -1280,6 +1300,10 @@ restart_loop:
 			if (is_journal_aborted(journal))
 				clear_buffer_jbddirty(bh);
 		} else {
+                    //wm debug
+                    if (jh2bh(jh)->b_blocknr == 131105) {
+                        printk(KERN_ALERT "it will be freed\n");
+                    }
 			J_ASSERT_BH(bh, !buffer_dirty(bh));
 			/*
 			 * The buffer on BJ_Forget list and not jbddirty means

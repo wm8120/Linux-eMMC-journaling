@@ -542,14 +542,20 @@ repeat:
                 ccount++;
             }
             //wm debug
-            //printk(KERN_ALERT "blocknr is %llu\n", bh_in->b_blocknr);
-            //printk(KERN_ALERT "bitmap %32ph\tcount=%u\n", jh_in->b_bitmap, ccount);
+            if (bh_in->b_blocknr == 131105) {
+                printk(KERN_ALERT "blocknr is %lu\n", bh_in->b_blocknr);
+                printk(KERN_ALERT "bitmap %32ph\tcount=%u\n", jh_in->b_bitmap, ccount);
+                printk(KERN_ALERT "first 128 bytes are:\n%64ph\n", bh_in->b_data);
+                printk(KERN_ALERT "%64ph\n", bh_in->b_data+64);
+            }
             J_ASSERT(ccount == count);
             jbd2_for_each_set_bit(i, jh_in->b_bitmap, jh_in->b_bitmap_size*8) {
                 J_ASSERT((i+1)*unit <= jsize);
                 J_ASSERT(merge_start + unit <= merge_data + merge_offset + jsize);
                 memcpy(merge_start, old_start+i*unit, unit);
-                //printk(KERN_ALERT "copy change %4ph\n", (void *)merge_start);
+            if (bh_in->b_blocknr == 131105) {
+                printk(KERN_ALERT "copy change %4ph\n", (void *)merge_start);
+                }
                 merge_start += unit;
             }
 
