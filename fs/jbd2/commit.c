@@ -629,7 +629,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 			jbd_debug(4, "JBD2: got buffer %llu (%p)\n",
 				(unsigned long long)bh->b_blocknr, bh->b_data);
                         //wm debug
-                        //printk(KERN_ALERT "descriptor buffer blocknr %llu\n", bh->b_blocknr);
+                        printk(KERN_ALERT "descriptor buffer blocknr %lu\n", bh->b_blocknr);
 
 			header = (journal_header_t *)&bh->b_data[0];
 			header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
@@ -682,7 +682,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 		}
 
                 if (jh->b_log_diff & 1) {
-                    continue;
+                    goto start_submit_bh;
                 }
 
 		set_bit(BH_JWrite, &jh2bh(new_jh)->b_state);
@@ -700,7 +700,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 		tag = (journal_block_tag_t *) tagp;
 		write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr);
                 //wm debug
-                //printk(KERN_ALERT "logged blocknr is %llu\n", jh2bh(jh)->b_blocknr);
+                printk(KERN_ALERT "logged blocknr is %lu\n", jh2bh(jh)->b_blocknr);
 		tag->t_flags = cpu_to_be16(tag_flag);
 		jbd2_block_tag_csum_set(journal, tag, jh2bh(new_jh),
 					commit_transaction->t_tid);
@@ -716,7 +716,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 
 		/* If there's no more to do, or if the descriptor is full,
 		   let the IO rip! */
-
+start_submit_bh:
 		if (bufs == journal->j_wbufsize ||
 		    commit_transaction->t_buffers == NULL ||
 		    space_left < tag_bytes + 16 + csum_size) {
@@ -824,7 +824,7 @@ start_journal_io:
                     // header
                     mybh = jh2bh(mydescriptor);
                     //wm debug
-                    //printk(KERN_ALERT "partial log descriptor blocknr is %llu\n", mybh->b_blocknr);
+                    printk(KERN_ALERT "tid: %u, partial log descriptor blocknr is %lu\n", commit_transaction->t_tid, mybh->b_blocknr);
                     header = (journal_header_t *)&mybh->b_data[0];
                     header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
                     header->h_blocktype = cpu_to_be32(JBD2_DESCRIPTOR_BLOCK);
@@ -847,7 +847,7 @@ start_journal_io:
                     // fill tag
                     write_tag_block(tag_bytes, tag, jh2bh(jhi)->b_blocknr);
                     //wm debug
-                    //printk(KERN_ALERT "tid: %u, partial log blocknr is %llu\n", commit_transaction->t_tid, jh2bh(jhi)->b_blocknr);
+                    printk(KERN_ALERT "tid: %u, partial log blocknr is %lu\n", commit_transaction->t_tid, jh2bh(jhi)->b_blocknr);
                     tag_flag |= JBD2_FLAG_LOG_DIFF;
 
                     tagp += tag_bytes;
@@ -890,7 +890,7 @@ start_journal_io:
                 jbd2_journal_next_log_block(journal, &blocknr);
                 jh2bh(jh)->b_blocknr = blocknr;
                 //wm debug
-                //printk(KERN_ALERT "tid: %u, partial log stores in blocknr %llu\n", commit_transaction->t_tid, blocknr);
+                printk(KERN_ALERT "tid: %u, partial log stores in blocknr %lu\n", commit_transaction->t_tid, blocknr);
                 wbuf[bufs++] = jh2bh(jh);
 
                 //link jh to BJ_IO, link jhsd to BJ_Shadow
@@ -1029,8 +1029,11 @@ wait_for_iobuf:
                     if (cond_resched())
                         goto wait_for_iobuf;
 
-                    if (unlikely(!buffer_uptodate(bh)))
+                    if (unlikely(!buffer_uptodate(bh))) {
                         err = -EIO;
+                        //wm debug
+                        printk(KERN_ALERT "buffer not up to date, log blocknr is %lu\n", bh->b_blocknr);
+                    }
                 }
 
 		clear_buffer_jwrite(bh);
@@ -1061,13 +1064,13 @@ wait_for_iobuf:
 		clear_bit(BH_JWrite, &bh->b_state);
 		J_ASSERT_BH(bh, buffer_jbddirty(bh));
 
-                //debug
-                if (bh->b_blocknr == 131105) {
-                    int i = 0;
-                    printk(KERN_ALERT "first 256 bytes of block %lu\n", bh->b_blocknr);
-                    for (i=0; i<4; i++)
-                        printk(KERN_ALERT "%64ph\n", bh->b_data+i*64);
-                }
+                //wm debug
+                //if (bh->b_blocknr == 131105) {
+                //    int i = 0;
+                //    printk(KERN_ALERT "first 256 bytes of block %lu\n", bh->b_blocknr);
+                //    for (i=0; i<4; i++)
+                //        printk(KERN_ALERT "%64ph\n", bh->b_data+i*64);
+                //}
 
                 if (log_diff) 
                     J_ASSERT_JH(jh, (jh->b_log_diff & 1) != 0);
@@ -1090,8 +1093,6 @@ wait_for_iobuf:
 		__brelse(bh);
 	}
 
-	J_ASSERT (commit_transaction->t_shadow_list == NULL);
-
 	jbd_debug(3, "JBD2: commit phase 4\n");
 
 	/* Here we wait for the revoke record and descriptor record buffers */
@@ -1108,8 +1109,11 @@ wait_for_iobuf:
 		if (cond_resched())
 			goto wait_for_ctlbuf;
 
-		if (unlikely(!buffer_uptodate(bh)))
+		if (unlikely(!buffer_uptodate(bh))) {
 			err = -EIO;
+                        //wm debug
+                        printk(KERN_ALERT "buffer not up to date, descriptor blocknr is %lu\n", bh->b_blocknr);
+                }
 
 		BUFFER_TRACE(bh, "ph5: control buffer writeout done: unfile");
 		clear_buffer_jwrite(bh);
@@ -1189,6 +1193,7 @@ wait_for_iobuf:
 	J_ASSERT(commit_transaction->t_shadow_list == NULL);
 	J_ASSERT(commit_transaction->t_log_list == NULL);
 	J_ASSERT(commit_transaction->t_tmpio_list == NULL);
+	J_ASSERT (commit_transaction->t_shadow_list == NULL);
 
 restart_loop:
 	/*
@@ -1239,16 +1244,6 @@ restart_loop:
 			jh->b_frozen_triggers = NULL;
 		}
 
-                //wm debug
-                if (jh2bh(jh)->b_blocknr == 131105) {
-                    printk(KERN_ALERT "1242\n");
-                    int i = 0;
-                    printk(KERN_ALERT "first 256 bytes of block %lu\n", jh2bh(jh)->b_blocknr);
-                    for (i=0; i<4; i++)
-                        printk(KERN_ALERT "%64ph\n", jh2bh(jh)->b_data+i*64);
-                }
-
-
 		spin_lock(&journal->j_list_lock);
 		cp_transaction = jh->b_cp_transaction;
 		if (cp_transaction && (jh->b_log_diff & 1) == 0) {
@@ -1296,14 +1291,16 @@ restart_loop:
 
 		if (buffer_jbddirty(bh)) {
 			JBUFFER_TRACE(jh, "add to new checkpointing trans");
-			__jbd2_journal_insert_checkpoint(jh, commit_transaction);
-			if (is_journal_aborted(journal))
-				clear_buffer_jbddirty(bh);
+                        if (!cp_transaction) {
+                            __jbd2_journal_insert_checkpoint(jh, commit_transaction);
+                            if (is_journal_aborted(journal))
+                                clear_buffer_jbddirty(bh);
+                        } else {
+                            J_ASSERT_JH(jh, jh->b_log_diff & 1);
+                            JBUFFER_TRACE(jh, "it's partial logged buffer, skip insert to checkpoint\n");
+                        }
+                        
 		} else {
-                    //wm debug
-                    if (jh2bh(jh)->b_blocknr == 131105) {
-                        printk(KERN_ALERT "it will be freed\n");
-                    }
 			J_ASSERT_BH(bh, !buffer_dirty(bh));
 			/*
 			 * The buffer on BJ_Forget list and not jbddirty means
@@ -1437,13 +1434,4 @@ restart_loop:
 	spin_unlock(&journal->j_list_lock);
 	write_unlock(&journal->j_state_lock);
 	wake_up(&journal->j_wait_done_commit);
-        //wm debug
-        if (1) {
-            struct buffer_head *bh;
-            int i = 0;
-            bh = __getblk(journal->j_fs_dev, 131105, journal->j_blocksize);
-            printk(KERN_ALERT "first 256 bytes of block %lu\n", bh->b_blocknr);
-            for (i=0; i<4; i++)
-                printk(KERN_ALERT "%64ph\n", bh->b_data+i*64);
-        }
 }

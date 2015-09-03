@@ -4226,15 +4226,15 @@ struct inode *ext4_iget(struct super_block *sb, unsigned long ino)
 	ei->i_file_acl = le32_to_cpu(raw_inode->i_file_acl_lo);
         //wm debug
         //if (ino == 32897) 
-            printk(KERN_ALERT "inode# %lu\tblocknr %lu\toffset %lu\tgroup nr %u\ti_file_acl %llu\n", 
-                    ino, iloc.bh->b_blocknr, iloc.offset, iloc.block_group, ei->i_file_acl);
-        if (ino == 32897) {
-            char *datap = iloc.bh->b_data;
-            printk (KERN_ALERT "inode# 32897 blocknr %lu first 256 bytes are:\n%64ph\n", iloc.bh->b_blocknr, datap);
-            printk (KERN_ALERT "%64ph\n", datap+64);
-            printk (KERN_ALERT "%64ph\n", datap+128);
-            printk (KERN_ALERT "%64ph\n", datap+192);
-        }
+        //    printk(KERN_ALERT "inode# %lu\tblocknr %lu\toffset %lu\tgroup nr %u\ti_file_acl %llu\n", 
+        //            ino, iloc.bh->b_blocknr, iloc.offset, iloc.block_group, ei->i_file_acl);
+        //if (ino == 32897) {
+        //    char *datap = iloc.bh->b_data;
+        //    printk (KERN_ALERT "inode# 32897 blocknr %lu first 256 bytes are:\n%64ph\n", iloc.bh->b_blocknr, datap);
+        //    printk (KERN_ALERT "%64ph\n", datap+64);
+        //    printk (KERN_ALERT "%64ph\n", datap+128);
+        //    printk (KERN_ALERT "%64ph\n", datap+192);
+        //}
 	if (EXT4_HAS_INCOMPAT_FEATURE(sb, EXT4_FEATURE_INCOMPAT_64BIT))
 		ei->i_file_acl |=
 			((__u64)le16_to_cpu(raw_inode->i_file_acl_high)) << 32;

@@ -747,19 +747,18 @@ cont_wait:
                                                 }
 
                                                 //wm debug
-                                                if (nbh->b_blocknr == 131105) {
-                                                //if (1) {
-                                                    int i=0;
-                                                    struct page *page = virt_to_page(nbh->b_data);
-                                                    unsigned int offset = offset_in_page(nbh->b_data);
-                                                    char* mapped = kmap_atomic(page);
-                                                    char* startp = mapped + offset;
-                                                    printk(KERN_ALERT "tid: %u, parital recovery, nbh blocknr is %lu\n", sequence, nbh->b_blocknr);
-                                                    printk(KERN_ALERT "first 512 bytes are:\n");
-                                                    for (i=0; i<4; i++) 
-                                                        printk(KERN_ALERT "%64ph\n", startp+i*64);
-                                                    kunmap_atomic(mapped);
-                                                }
+                                                //if (nbh->b_blocknr == 131105) {
+                                                //    int i=0;
+                                                //    struct page *page = virt_to_page(nbh->b_data);
+                                                //    unsigned int offset = offset_in_page(nbh->b_data);
+                                                //    char* mapped = kmap_atomic(page);
+                                                //    char* startp = mapped + offset;
+                                                //    printk(KERN_ALERT "tid: %u, parital recovery, nbh blocknr is %lu\n", sequence, nbh->b_blocknr);
+                                                //    printk(KERN_ALERT "first 512 bytes are:\n");
+                                                //    for (i=0; i<4; i++) 
+                                                //        printk(KERN_ALERT "%64ph\n", startp+i*64);
+                                                //    kunmap_atomic(mapped);
+                                                //}
                                             
                                             } else {
                                                 //wm debug
