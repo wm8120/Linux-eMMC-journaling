@@ -132,6 +132,8 @@ static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 	else
 		clear_buffer_uptodate(bh);
 	unlock_buffer(bh);
+        //wm debug
+        printk(KERN_ALERT "blocknr %lu is unlocked\n", bh->b_blocknr);
 }
 
 /*
@@ -682,18 +684,18 @@ start_next_tag:
                                             set_buffer_mapped(nbh);
                                             nbh->b_end_io = journal_end_buffer_io_sync;
                                             lock_buffer(nbh);
-                                            submit_bh(REQ_SYNC, nbh);
+                                            //wm debug
+                                            printk(KERN_ALERT "tid: %u, blocknr %lu is locked for loading\n", sequence, nbh->b_blocknr);
 
+                                            submit_bh(REQ_SYNC | REQ_FUA, nbh);
 cont_wait:
                                             while(buffer_locked(nbh)) {
-                                                wait_on_buffer(nbh);
+                                                //wait_on_buffer(nbh);
                                                 goto cont_wait;
 
                                                 if (unlikely(!buffer_uptodate(nbh)))
                                                     BUG_ON(1);
                                             }
-
-
 
                                             if (flags & JBD2_FLAG_ESCAPE) {
                                                 *((__be32 *)obh->b_data) =
@@ -701,8 +703,10 @@ cont_wait:
                                             }
 
                                             lock_buffer(nbh);
+                                            // wm debug
+                                            printk(KERN_ALERT "tid: %u, blocknr %lu is locked due to copy memory\n", sequence, nbh->b_blocknr);
                                             // copy memory: two schemes
-                                            // debug
+                                            //wm debug
                                             //printk(KERN_ALERT "recovery tid is %u\n", sequence);
                                             //printk(KERN_ALERT "recovery bitmap %32ph\n", datap);
                                             if (flags & JBD2_FLAG_LOG_DIFF) {
@@ -714,28 +718,28 @@ cont_wait:
                                                 datap += bitmap_size;
                                                 
                                                 //wm debug
-                                                if (nbh->b_blocknr == 131105) {
-                                                //if (1) {
-                                                    int i=0;
-                                                    struct page *page = virt_to_page(nbh->b_data);
-                                                    unsigned int offset = offset_in_page(nbh->b_data);
-                                                    char* mapped = kmap_atomic(page);
-                                                    char* startp = mapped + offset;
-                                                    printk(KERN_ALERT "tid: %u, parital recovery, nbh blocknr is %lu\n", sequence, nbh->b_blocknr);
-                                                    printk(KERN_ALERT "first 512 bytes are:\n");
-                                                    for (i=0; i<4; i++) 
-                                                        printk(KERN_ALERT "%64ph\n", startp+i*64);
-                                                    kunmap_atomic(mapped);
-                                                    printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
-                                                }
+                                                //if (nbh->b_blocknr == 131105) {
+                                                ////if (1) {
+                                                //    int i=0;
+                                                //    struct page *page = virt_to_page(nbh->b_data);
+                                                //    unsigned int offset = offset_in_page(nbh->b_data);
+                                                //    char* mapped = kmap_atomic(page);
+                                                //    char* startp = mapped + offset;
+                                                //    printk(KERN_ALERT "tid: %u, parital recovery, nbh blocknr is %lu\n", sequence, nbh->b_blocknr);
+                                                //    printk(KERN_ALERT "first 512 bytes are:\n");
+                                                //    for (i=0; i<4; i++) 
+                                                //        printk(KERN_ALERT "%64ph\n", startp+i*64);
+                                                //    kunmap_atomic(mapped);
+                                                //    printk(KERN_ALERT "recovery bitmap %32ph\n", bitmap);
+                                                //}
                                                 jbd2_for_each_set_bit(i, bitmap, bitmap_size*8) {
                                                     J_ASSERT(datap - obh->b_data + sizeof(jbd2_unit_t) <= obh->b_size);
                                                     J_ASSERT((i+1)*sizeof(jbd2_unit_t) <= nbh->b_size);
                                                     memcpy(nbh->b_data + i*sizeof(jbd2_unit_t), datap, sizeof(jbd2_unit_t));
                                                     //*((jbd2_unit_t*) (nbh->b_data + i*sizeof(jbd2_unit_t))) = *((jbd2_unit_t*) datap);
-                                                    if (nbh->b_blocknr == 131105) {
-                                                    printk(KERN_ALERT "recovered data is %4ph\n", (jbd2_unit_t*) datap);
-                                                    }
+                                                    //if (nbh->b_blocknr == 131105) {
+                                                    //printk(KERN_ALERT "recovered data is %4ph\n", (jbd2_unit_t*) datap);
+                                                    //}
                                                     //jbd2_unit_t recovered = *((jbd2_unit_t *) (nbh->b_data + i*sizeof(jbd2_unit_t)));
                                                     //BUG_ON(*((jbd2_unit_t *) datap) != recovered);
                                                     //if (*((jbd2_unit_t *) datap) != recovered) {
@@ -784,6 +788,8 @@ cont_wait:
                                             ++info->nr_replays;
                                             /* ll_rw_block(WRITE, 1, &nbh); */
                                             unlock_buffer(nbh);
+                                            // wm debug
+                                            printk(KERN_ALERT "tid: %u, blocknr %lu is unlocked due to copy memory done\n", sequence, nbh->b_blocknr);
                                             //printk(KERN_ALERT "brelse\n");
                                             brelse(nbh);
 
@@ -829,8 +835,8 @@ debug_skip_write:
 
                         //wm debug
                         //printk(KERN_ALERT "tid: %u, recovery for one descriptor block done\n", sequence);
-                        printk(KERN_ALERT "tid: %u, recovery entire block %u\n", sequence, entire_count);
-                        printk(KERN_ALERT "tid: %u, recovery partial block %u\n", sequence, partial_count);
+                        //printk(KERN_ALERT "tid: %u, recovery entire block %u\n", sequence, entire_count);
+                        //printk(KERN_ALERT "tid: %u, recovery partial block %u\n", sequence, partial_count);
 
                         brelse(bh);
                         continue;

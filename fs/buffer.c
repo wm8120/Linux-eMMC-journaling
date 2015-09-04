@@ -359,6 +359,8 @@ void end_buffer_async_write(struct buffer_head *bh, int uptodate)
 	tmp = bh->b_this_page;
 	while (tmp != bh) {
 		if (buffer_async_write(tmp)) {
+                        //wm debug
+                        printk(KERN_ALERT "blocknr %lu should be unlocked\n", tmp->b_blocknr);
 			BUG_ON(!buffer_locked(tmp));
 			goto still_busy;
 		}
