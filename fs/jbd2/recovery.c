@@ -124,16 +124,15 @@ failed:
 
 #endif /* __KERNEL__ */
 
-static void journal_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
+static void myjbd2_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 {
 	BUFFER_TRACE(bh, "");
 	if (uptodate)
 		set_buffer_uptodate(bh);
 	else
 		clear_buffer_uptodate(bh);
-	unlock_buffer(bh);
         //wm debug
-        printk(KERN_ALERT "blocknr %lu is unlocked\n", bh->b_blocknr);
+        printk(KERN_ALERT "myjbd2 blocknr %lu is unlocked\n", bh->b_blocknr);
 }
 
 /*
@@ -681,28 +680,34 @@ start_next_tag:
                                                 brelse(obh);
                                                 goto failed;
                                             }
-                                            set_buffer_mapped(nbh);
-                                            nbh->b_end_io = journal_end_buffer_io_sync;
-                                            lock_buffer(nbh);
                                             //wm debug
-                                            printk(KERN_ALERT "tid: %u, blocknr %lu is locked for loading\n", sequence, nbh->b_blocknr);
+                                            //if (!buffer_uptodate(nbh))
+                                            //    printk(KERN_ALERT "buffer is not valid\n");
+                                            //else
+                                            //    printk(KERN_ALERT "buffer is valid\n");
 
-                                            submit_bh(REQ_SYNC | REQ_FUA, nbh);
+                                            lock_buffer(nbh);
+                                            if (!buffer_uptodate(nbh)) {
+                                                set_buffer_mapped(nbh);
+                                                nbh->b_end_io = myjbd2_end_buffer_io_sync;
+                                                //wm debug
+                                                printk(KERN_ALERT "tid: %u, blocknr %lu is locked for loading\n", sequence, nbh->b_blocknr);
+
+                                                submit_bh(READ_SYNC | REQ_META, nbh);
 cont_wait:
-                                            while(buffer_locked(nbh)) {
-                                                //wait_on_buffer(nbh);
-                                                goto cont_wait;
-
-                                                if (unlikely(!buffer_uptodate(nbh)))
-                                                    BUG_ON(1);
-                                            }
+                                                while(!buffer_uptodate(nbh)) {
+                                                    //wait_on_buffer(nbh);
+                                                    goto cont_wait;
+                                                }
+                                                BUG_ON(!buffer_locked(nbh));
+                                            } else 
+                                                J_ASSERT_BH(nbh, buffer_mapped(nbh));
 
                                             if (flags & JBD2_FLAG_ESCAPE) {
                                                 *((__be32 *)obh->b_data) =
                                                     cpu_to_be32(JBD2_MAGIC_NUMBER);
                                             }
 
-                                            lock_buffer(nbh);
                                             // wm debug
                                             printk(KERN_ALERT "tid: %u, blocknr %lu is locked due to copy memory\n", sequence, nbh->b_blocknr);
                                             // copy memory: two schemes
@@ -719,7 +724,6 @@ cont_wait:
                                                 
                                                 //wm debug
                                                 //if (nbh->b_blocknr == 131105) {
-                                                ////if (1) {
                                                 //    int i=0;
                                                 //    struct page *page = virt_to_page(nbh->b_data);
                                                 //    unsigned int offset = offset_in_page(nbh->b_data);

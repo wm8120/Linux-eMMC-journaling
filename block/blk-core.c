@@ -2333,6 +2333,8 @@ bool blk_update_request(struct request *req, int error, unsigned int nr_bytes)
 	while (req->bio) {
 		struct bio *bio = req->bio;
 		unsigned bio_bytes = min(bio->bi_size, nr_bytes);
+                //wm debug
+                printk(KERN_ALERT "call b_end_io of sector %lu\n", bio->bi_sector);
 
 		if (bio_bytes == bio->bi_size)
 			req->bio = bio->bi_next;
@@ -2345,6 +2347,8 @@ bool blk_update_request(struct request *req, int error, unsigned int nr_bytes)
 		if (!nr_bytes)
 			break;
 	}
+        //wm debug
+        printk(KERN_ALERT "finish bios in one request\n");
 
 	/*
 	 * completely done
