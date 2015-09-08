@@ -366,13 +366,14 @@ static void jbd2_block_tag_csum_set(journal_t *j, journal_block_tag_t *tag,
  */
 void jbd2_journal_commit_transaction(journal_t *journal)
 {
-    //wm add debug
-    struct buffer_head* mybh;
-    struct journal_head* mydescriptor;
-    struct journal_head* myjh;
+        //wm add debug
+        struct buffer_head* mybh;
+        struct journal_head* mydescriptor;
+        struct journal_head* myjh;
         unsigned int mycount = 0;
+        int recycle_desc = 0; //used if no entire block is logged;
         //end
-	struct transaction_stats_s stats;
+        struct transaction_stats_s stats;
 	transaction_t *commit_transaction;
 	struct journal_head *jh, *new_jh, *descriptor;
 	struct buffer_head **wbuf = journal->j_wbuf;
@@ -721,6 +722,12 @@ start_submit_bh:
 		    commit_transaction->t_buffers == NULL ||
 		    space_left < tag_bytes + 16 + csum_size) {
 
+                        if (bufs == 1) { //there is no entire block is logged
+                            J_ASSERT(commit_transaction->t_buffers == NULL);
+                            recycle_desc = 1;
+                            break;
+                        }
+
 			jbd_debug(4, "JBD2: Submit %d IOs\n", bufs);
 
 			/* Write an end-of-descriptor marker before
@@ -780,17 +787,16 @@ start_journal_io:
         //}
         if (commit_transaction->t_tmpio_list) {
             //printk(KERN_ALERT "myjbd2: enter merge block stage\n");
-            char* tagp = NULL;
-            journal_block_tag_t* tag;
+            //char* tagp = NULL;
+            journal_block_tag_t* tag = (journal_block_tag_t*) tagp;
             int tag_flag;
-            int space_left = 0;
+            //int space_left = 0;
             struct journal_head* jh;  //first jh in tmp io list
             struct journal_head* jhp; //next jh with merged data
             struct journal_head* jhi;
             struct journal_head* jhsd, *jhsdi; //jh to tmpsd list
             int count = 1;
 
-            bufs = 0;
             mydescriptor = NULL;
             mycount = 0;
 
@@ -809,9 +815,22 @@ start_journal_io:
                 }
                 mycount += count;
                 
+                if (recycle_desc) {
+                    J_ASSERT(bufs == 1);
+                    J_ASSERT(first_tag == 1);
+                    J_ASSERT(space_left == jh2bh(descriptor)->b_size - sizeof(journal_header_t));
+                    J_ASSERT(tagp == &(jh2bh(descriptor)->b_data[sizeof(journal_header_t)]));
+                    J_ASSERT(descriptor != NULL);
+                    J_ASSERT(space_left >= count*tag_bytes);
+                    mydescriptor = descriptor;
+                    descriptor = NULL;
+                    recycle_desc = 0;
+                }
+
                 if (mydescriptor == NULL || space_left < count*tag_bytes) {
                     
                     if (bufs > 0) {
+                            J_ASSERT(mydescriptor != NULL);
                             // last tag
                             tag->t_flags |= cpu_to_be16(JBD2_FLAG_LAST_TAG);
                     }
@@ -890,7 +909,7 @@ start_journal_io:
                 jbd2_journal_next_log_block(journal, &blocknr);
                 jh2bh(jh)->b_blocknr = blocknr;
                 //wm debug
-                printk(KERN_ALERT "tid: %u, partial log stores in blocknr %lu\n", commit_transaction->t_tid, blocknr);
+                printk(KERN_ALERT "tid: %u, partial log stores in blocknr %llu\n", commit_transaction->t_tid, blocknr);
                 wbuf[bufs++] = jh2bh(jh);
 
                 //link jh to BJ_IO, link jhsd to BJ_Shadow

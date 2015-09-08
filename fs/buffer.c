@@ -359,8 +359,6 @@ void end_buffer_async_write(struct buffer_head *bh, int uptodate)
 	tmp = bh->b_this_page;
 	while (tmp != bh) {
 		if (buffer_async_write(tmp)) {
-                        //wm debug
-                        printk(KERN_ALERT "blocknr %lu should be locked\n", tmp->b_blocknr);
 			BUG_ON(!buffer_locked(tmp));
 			goto still_busy;
 		}
@@ -369,8 +367,6 @@ void end_buffer_async_write(struct buffer_head *bh, int uptodate)
 	bit_spin_unlock(BH_Uptodate_Lock, &first->b_state);
 	local_irq_restore(flags);
 	end_page_writeback(page);
-        //wm debug
-        printk(KERN_ALERT "write out all page\n");
 	return;
 
 still_busy:
