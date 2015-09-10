@@ -74,6 +74,8 @@ extern ushort jbd2_journal_enable_debug;
 
 extern void *jbd2_alloc(size_t size, gfp_t flags);
 extern void jbd2_free(void *ptr, size_t size);
+extern void *jbd2_bitmap_alloc(size_t size, gfp_t flags);
+extern void jbd2_bitmap_free(void *ptr, size_t size);
 
 #define JBD2_MIN_JOURNAL_BLOCKS 1024
 

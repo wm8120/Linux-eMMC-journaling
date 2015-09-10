@@ -102,6 +102,7 @@ EXPORT_SYMBOL(jbd2_inode_cache);
 
 static void __journal_abort_soft (journal_t *journal, int errno);
 static int jbd2_journal_create_slab(size_t slab_size);
+static int jbd2_journal_create_bitmap_slab(size_t bitmap_size);
 
 /* Checksumming functions */
 int jbd2_verify_csum_type(journal_t *j, journal_superblock_t *sb)
@@ -1838,6 +1839,11 @@ int jbd2_journal_load(journal_t *journal)
 	err = jbd2_journal_create_slab(be32_to_cpu(sb->s_blocksize));
 	if (err)
 		return err;
+        /* Create a bitmap slab */
+        err = jbd2_journal_create_bitmap_slab (
+                                jbd2_journal_bitmap_array_size(be32_to_cpu(sb->s_blocksize)));
+        if (err)
+                return err;
 
 	/* Let the recovery code check whether it needs to recover any
 	 * data from the journal. */
@@ -2402,6 +2408,7 @@ size_t journal_tag_bytes(journal_t *journal)
  */
 #define JBD2_MAX_SLABS 8
 static struct kmem_cache *jbd2_slab[JBD2_MAX_SLABS];
+static struct kmem_cache *jbd2_bitmap_slab;
 
 static const char *jbd2_slab_names[JBD2_MAX_SLABS] = {
 	"jbd2_1k", "jbd2_2k", "jbd2_4k", "jbd2_8k",
@@ -2446,6 +2453,29 @@ static int jbd2_journal_create_slab(size_t size)
 	mutex_unlock(&jbd2_slab_create_mutex);
 	if (!jbd2_slab[i]) {
 		printk(KERN_EMERG "JBD2: no memory for jbd2_slab cache\n");
+		return -ENOMEM;
+	}
+	return 0;
+}
+
+static int jbd2_journal_create_bitmap_slab(size_t size)
+{
+	static DEFINE_MUTEX(jbd2_bitmap_slab_create_mutex);
+	int i = order_base_2(size);
+
+        J_ASSERT(i<9);
+
+        mutex_lock(&jbd2_bitmap_slab_create_mutex);
+        if (jbd2_bitmap_slab) {
+            mutex_unlock(&jbd2_bitmap_slab_create_mutex);
+            return 0;
+        }
+
+	jbd2_bitmap_slab = kmem_cache_create("jbd2_bitmap_slab", size,
+					 size, 0, NULL);
+        mutex_unlock(&jbd2_bitmap_slab_create_mutex);
+	if (!jbd2_bitmap_slab) {
+		printk(KERN_EMERG "JBD2: no memory for jbd2_bitmap_slab cache\n");
 		return -ENOMEM;
 	}
 	return 0;
@@ -2504,6 +2534,27 @@ void jbd2_free(void *ptr, size_t size)
 		return;
 	}
 	kmem_cache_free(get_slab(size), ptr);
+};
+
+void *jbd2_bitmap_alloc(size_t size, gfp_t flags)
+{
+	void *ptr;
+
+	BUG_ON(size & (size-1)); /* Must be a power of 2 */
+
+        flags |= __GFP_REPEAT;
+        ptr = kmem_cache_alloc(jbd2_bitmap_slab, flags);
+
+	/* Check alignment; SLUB has gotten this wrong in the past,
+	 * and this can lead to user data corruption! */
+	BUG_ON(((unsigned long) ptr) & (size-1));
+
+	return ptr;
+}
+
+void jbd2_bitmap_free(void *ptr, size_t size)
+{
+	kmem_cache_free(jbd2_bitmap_slab, ptr);
 };
 
 /*
@@ -2695,7 +2746,7 @@ static void __journal_remove_journal_head(struct buffer_head *bh)
         }
         if (jh->b_bitmap) {
 	    //printk(KERN_WARNING "%s: freeing bitmap\n", __func__);
-            jbd2_free (jh->b_bitmap, jh->b_bitmap_size);
+            jbd2_bitmap_free (jh->b_bitmap, jh->b_bitmap_size);
         }
         //end
 	bh->b_private = NULL;

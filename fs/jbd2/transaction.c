@@ -749,7 +749,7 @@ repeat:
                 //allocate bitmap space 
                 J_ASSERT_JH(jh, jh->b_bitmap == NULL);
                 JBUFFER_TRACE(jh, "allocate memory for buffer bitmap");
-                bitmap = jbd2_alloc(bitmap_size, GFP_NOFS);
+                bitmap = jbd2_bitmap_alloc(bitmap_size, GFP_NOFS);
 
                 if (!bitmap) {
                     printk(KERN_EMERG
@@ -790,7 +790,7 @@ repeat:
         if (unlikely(jh->snapshot != NULL && snapshot != NULL)) {
             jbd2_free(snapshot, bh->b_size);
             J_ASSERT(bitmap != NULL);
-            jbd2_free(bitmap, bitmap_size);
+            jbd2_bitmap_free(bitmap, bitmap_size);
         }
         //end
 
