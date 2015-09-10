@@ -372,6 +372,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
         struct journal_head* myjh;
         unsigned int mycount = 0;
         int recycle_desc = 0; //used if no entire block is logged;
+        unsigned long time_start;
         //end
         struct transaction_stats_s stats;
 	transaction_t *commit_transaction;
@@ -444,12 +445,15 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	stats.run.rs_wait = commit_transaction->t_max_wait;
 	stats.run.rs_request_delay = 0;
 	stats.run.rs_locked = jiffies;
-	if (commit_transaction->t_requested)
+	if (commit_transaction->t_requested) {
 		stats.run.rs_request_delay =
 			jbd2_time_diff(commit_transaction->t_requested,
 				       stats.run.rs_locked);
+        }
 	stats.run.rs_running = jbd2_time_diff(commit_transaction->t_start,
 					      stats.run.rs_locked);
+        //wm add profile
+        printk(KERN_ALERT "rs_running: %lu\n", stats.run.rs_running);
 
 	spin_lock(&commit_transaction->t_handle_lock);
 	while (atomic_read(&commit_transaction->t_updates)) {
@@ -531,6 +535,8 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	stats.run.rs_flushing = jiffies;
 	stats.run.rs_locked = jbd2_time_diff(stats.run.rs_locked,
 					     stats.run.rs_flushing);
+        //wm add profile
+        printk(KERN_ALERT "rs_locked: %lu\n", stats.run.rs_locked);
 
 	commit_transaction->t_state = T_FLUSH;
 	journal->j_committing_transaction = commit_transaction;
@@ -570,6 +576,8 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	stats.run.rs_logging = jiffies;
 	stats.run.rs_flushing = jbd2_time_diff(stats.run.rs_flushing,
 					       stats.run.rs_logging);
+        //wm add profile
+        printk(KERN_ALERT "rs_flusing: %lu\n", stats.run.rs_flushing);
 	stats.run.rs_blocks =
 		atomic_read(&commit_transaction->t_outstanding_credits);
 	stats.run.rs_blocks_logged = 0;
@@ -581,6 +589,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	descriptor = NULL;
 	bufs = 0;
 	blk_start_plug(&plug);
+        time_start = jiffies;
 	while (commit_transaction->t_buffers) {
 
                 mycount++;
@@ -630,7 +639,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 			jbd_debug(4, "JBD2: got buffer %llu (%p)\n",
 				(unsigned long long)bh->b_blocknr, bh->b_data);
                         //wm debug
-                        printk(KERN_ALERT "descriptor buffer blocknr %lu\n", bh->b_blocknr);
+                        //printk(KERN_ALERT "descriptor buffer blocknr %lu\n", bh->b_blocknr);
 
 			header = (journal_header_t *)&bh->b_data[0];
 			header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
@@ -701,7 +710,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 		tag = (journal_block_tag_t *) tagp;
 		write_tag_block(tag_bytes, tag, jh2bh(jh)->b_blocknr);
                 //wm debug
-                printk(KERN_ALERT "logged blocknr is %lu\n", jh2bh(jh)->b_blocknr);
+                //printk(KERN_ALERT "logged blocknr is %lu\n", jh2bh(jh)->b_blocknr);
 		tag->t_flags = cpu_to_be16(tag_flag);
 		jbd2_block_tag_csum_set(journal, tag, jh2bh(new_jh),
 					commit_transaction->t_tid);
@@ -765,7 +774,7 @@ start_journal_io:
 			bufs = 0;
 		}
 	}
-        printk("tid %u, %u journal block\n", commit_transaction->t_tid, mycount);
+        //printk("tid %u, %u journal block\n", commit_transaction->t_tid, mycount);
 
         //wm add debug
         //if (commit_transaction->t_tmpio_list) {
@@ -843,7 +852,7 @@ start_journal_io:
                     // header
                     mybh = jh2bh(mydescriptor);
                     //wm debug
-                    printk(KERN_ALERT "tid: %u, partial log descriptor blocknr is %lu\n", commit_transaction->t_tid, mybh->b_blocknr);
+                    //printk(KERN_ALERT "tid: %u, partial log descriptor blocknr is %lu\n", commit_transaction->t_tid, mybh->b_blocknr);
                     header = (journal_header_t *)&mybh->b_data[0];
                     header->h_magic     = cpu_to_be32(JBD2_MAGIC_NUMBER);
                     header->h_blocktype = cpu_to_be32(JBD2_DESCRIPTOR_BLOCK);
@@ -866,7 +875,7 @@ start_journal_io:
                     // fill tag
                     write_tag_block(tag_bytes, tag, jh2bh(jhi)->b_blocknr);
                     //wm debug
-                    printk(KERN_ALERT "tid: %u, partial log blocknr is %lu\n", commit_transaction->t_tid, jh2bh(jhi)->b_blocknr);
+                    //printk(KERN_ALERT "tid: %u, partial log blocknr is %lu\n", commit_transaction->t_tid, jh2bh(jhi)->b_blocknr);
                     tag_flag |= JBD2_FLAG_LOG_DIFF;
 
                     tagp += tag_bytes;
@@ -909,7 +918,7 @@ start_journal_io:
                 jbd2_journal_next_log_block(journal, &blocknr);
                 jh2bh(jh)->b_blocknr = blocknr;
                 //wm debug
-                printk(KERN_ALERT "tid: %u, partial log stores in blocknr %llu\n", commit_transaction->t_tid, blocknr);
+                //printk(KERN_ALERT "tid: %u, partial log stores in blocknr %llu\n", commit_transaction->t_tid, blocknr);
                 wbuf[bufs++] = jh2bh(jh);
 
                 //link jh to BJ_IO, link jhsd to BJ_Shadow
@@ -956,11 +965,16 @@ start_journal_io:
             }
 
             J_ASSERT(commit_transaction->t_tmpsd_list == NULL);
-            printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
+            //printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
         }
         //end
+        //wm add profile
+        printk(KERN_ALERT "rs_buffers: %lu\n", jbd2_time_diff(time_start, jiffies));
 
+        time_start = jiffies;
 	err = journal_finish_inode_data_buffers(journal, commit_transaction);
+        //wm add profile
+        printk(KERN_ALERT "rs_finish_data: %lu\n", jbd2_time_diff(time_start, jiffies));
 	if (err) {
 		printk(KERN_WARNING
 			"JBD2: Detected IO errors while flushing file data "
@@ -1033,6 +1047,7 @@ start_journal_io:
 	 * See __journal_try_to_free_buffer.
 	 */
 wait_for_iobuf:
+        time_start = jiffies;
 	while (commit_transaction->t_iobuf_list != NULL) {
 		struct buffer_head *bh;
                 int log_diff = 0;
@@ -1051,7 +1066,7 @@ wait_for_iobuf:
                     if (unlikely(!buffer_uptodate(bh))) {
                         err = -EIO;
                         //wm debug
-                        printk(KERN_ALERT "buffer not up to date, log blocknr is %lu\n", bh->b_blocknr);
+                        //printk(KERN_ALERT "buffer not up to date, log blocknr is %lu\n", bh->b_blocknr);
                     }
                 }
 
@@ -1131,7 +1146,7 @@ wait_for_iobuf:
 		if (unlikely(!buffer_uptodate(bh))) {
 			err = -EIO;
                         //wm debug
-                        printk(KERN_ALERT "buffer not up to date, descriptor blocknr is %lu\n", bh->b_blocknr);
+                        //printk(KERN_ALERT "buffer not up to date, descriptor blocknr is %lu\n", bh->b_blocknr);
                 }
 
 		BUFFER_TRACE(bh, "ph5: control buffer writeout done: unfile");
@@ -1141,6 +1156,8 @@ wait_for_iobuf:
 		__brelse(bh);		/* One for getblk */
 		/* AKPM: bforget here */
 	}
+        //wm add profile
+        printk(KERN_ALERT "rs_waitio: %lu\n", jbd2_time_diff(time_start, jiffies));
 
         //wm add debug
         i = 0;
@@ -1172,6 +1189,7 @@ wait_for_iobuf:
 	commit_transaction->t_state = T_COMMIT_JFLUSH;
 	write_unlock(&journal->j_state_lock);
 
+        time_start = jiffies;
 	if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
 				       JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)) {
 		err = journal_submit_commit_record(journal, commit_transaction,
@@ -1179,8 +1197,11 @@ wait_for_iobuf:
 		if (err)
 			__jbd2_journal_abort_hard(journal);
 	}
-	if (cbh)
-		err = journal_wait_on_commit_record(journal, cbh);
+        if (cbh) {
+            err = journal_wait_on_commit_record(journal, cbh);
+            //wm add profile
+            printk(KERN_ALERT "rs_wait_commit: %lu\n", jbd2_time_diff(time_start, jiffies));
+        }
 	if (JBD2_HAS_INCOMPAT_FEATURE(journal,
 				      JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT) &&
 	    journal->j_flags & JBD2_BARRIER) {
@@ -1370,6 +1391,8 @@ restart_loop:
 	commit_transaction->t_start = jiffies;
 	stats.run.rs_logging = jbd2_time_diff(stats.run.rs_logging,
 					      commit_transaction->t_start);
+        //wm add profile
+        printk(KERN_ALERT "rs_logging: %lu\n", stats.run.rs_logging);
 
 	/*
 	 * File the transaction statistics

@@ -287,6 +287,14 @@ static int __process_buffer(journal_t *journal, struct journal_head *jh,
 			       (unsigned long long) bh->b_blocknr);
 		jbd2_log_start_commit(journal, tid);
 		jbd2_log_wait_commit(journal, tid);
+                //wm add
+                spin_lock(&journal->j_list_lock);
+                if (jh->b_cp_transaction == transaction) {
+                    //printk(KERN_ALERT "it's a partial logged jh blocknr: %lu, checkpoint it to disk\n", bh->b_blocknr);
+                    goto ready_checkpoint_io;
+                }
+                spin_unlock(&journal->j_list_lock);
+                //end
 		ret = 1;
 	} else if (!buffer_dirty(bh)) {
 		ret = 1;
@@ -305,6 +313,7 @@ static int __process_buffer(journal_t *journal, struct journal_head *jh,
 		 * messing around with this buffer before we write it to
 		 * disk, as that would break recoverability.
 		 */
+ready_checkpoint_io:
 		BUFFER_TRACE(bh, "queue");
 		get_bh(bh);
 		J_ASSERT_BH(bh, !buffer_jwrite(bh));

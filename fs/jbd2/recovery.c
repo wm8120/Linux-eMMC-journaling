@@ -132,7 +132,7 @@ static void myjbd2_end_buffer_io_sync(struct buffer_head *bh, int uptodate)
 	else
 		clear_buffer_uptodate(bh);
         //wm debug
-        printk(KERN_ALERT "myjbd2 blocknr %lu is unlocked\n", bh->b_blocknr);
+        //printk(KERN_ALERT "myjbd2 blocknr %lu is unlocked\n", bh->b_blocknr);
 }
 
 /*
@@ -686,30 +686,14 @@ start_next_tag:
                                             //else
                                             //    printk(KERN_ALERT "buffer is valid\n");
 
-                                            lock_buffer(nbh);
-                                            if (!buffer_uptodate(nbh)) {
-                                                set_buffer_mapped(nbh);
-                                                nbh->b_end_io = myjbd2_end_buffer_io_sync;
-                                                //wm debug
-                                                printk(KERN_ALERT "tid: %u, blocknr %lu is locked for loading\n", sequence, nbh->b_blocknr);
-
-                                                submit_bh(READ_SYNC | REQ_META, nbh);
-cont_wait:
-                                                while(!buffer_uptodate(nbh)) {
-                                                    //wait_on_buffer(nbh);
-                                                    goto cont_wait;
-                                                }
-                                                BUG_ON(!buffer_locked(nbh));
-                                            } else 
-                                                J_ASSERT_BH(nbh, buffer_mapped(nbh));
-
                                             if (flags & JBD2_FLAG_ESCAPE) {
                                                 *((__be32 *)obh->b_data) =
                                                     cpu_to_be32(JBD2_MAGIC_NUMBER);
                                             }
 
+                                            lock_buffer(nbh);
                                             // wm debug
-                                            printk(KERN_ALERT "tid: %u, blocknr %lu is locked due to copy memory\n", sequence, nbh->b_blocknr);
+                                            //printk(KERN_ALERT "tid: %u, blocknr %lu is locked due to copy memory\n", sequence, nbh->b_blocknr);
                                             // copy memory: two schemes
                                             //wm debug
                                             //printk(KERN_ALERT "recovery tid is %u\n", sequence);
@@ -722,6 +706,22 @@ cont_wait:
                                                 bitmap = (unsigned long*) datap;
                                                 datap += bitmap_size;
                                                 
+                                                if (!buffer_uptodate(nbh)) {
+                                                    set_buffer_mapped(nbh);
+                                                    nbh->b_end_io = myjbd2_end_buffer_io_sync;
+                                                    //wm debug
+                                                    //printk(KERN_ALERT "tid: %u, blocknr %lu is locked for loading\n", sequence, nbh->b_blocknr);
+
+                                                    submit_bh(READ_SYNC | REQ_META, nbh);
+cont_wait:
+                                                    while(!buffer_uptodate(nbh)) {
+                                                        //wait_on_buffer(nbh);
+                                                        goto cont_wait;
+                                                    }
+                                                    BUG_ON(!buffer_locked(nbh));
+                                                } else 
+                                                    J_ASSERT_BH(nbh, buffer_mapped(nbh));
+
                                                 //wm debug
                                                 //if (nbh->b_blocknr == 131105) {
                                                 //    int i=0;
@@ -793,7 +793,7 @@ cont_wait:
                                             /* ll_rw_block(WRITE, 1, &nbh); */
                                             unlock_buffer(nbh);
                                             // wm debug
-                                            printk(KERN_ALERT "tid: %u, blocknr %lu is unlocked due to copy memory done\n", sequence, nbh->b_blocknr);
+                                            //printk(KERN_ALERT "tid: %u, blocknr %lu is unlocked due to copy memory done\n", sequence, nbh->b_blocknr);
                                             //printk(KERN_ALERT "brelse\n");
                                             brelse(nbh);
 
