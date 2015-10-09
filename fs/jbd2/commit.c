@@ -372,7 +372,6 @@ void jbd2_journal_commit_transaction(journal_t *journal)
         struct journal_head* myjh;
         unsigned int mycount = 0;
         int recycle_desc = 0; //used if no entire block is logged;
-        unsigned long time_start;
         //end
         struct transaction_stats_s stats;
 	transaction_t *commit_transaction;
@@ -452,8 +451,6 @@ void jbd2_journal_commit_transaction(journal_t *journal)
         }
 	stats.run.rs_running = jbd2_time_diff(commit_transaction->t_start,
 					      stats.run.rs_locked);
-        //wm add profile
-        printk(KERN_ALERT "rs_running: %lu\n", stats.run.rs_running);
 
 	spin_lock(&commit_transaction->t_handle_lock);
 	while (atomic_read(&commit_transaction->t_updates)) {
@@ -535,8 +532,6 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	stats.run.rs_flushing = jiffies;
 	stats.run.rs_locked = jbd2_time_diff(stats.run.rs_locked,
 					     stats.run.rs_flushing);
-        //wm add profile
-        printk(KERN_ALERT "rs_locked: %lu\n", stats.run.rs_locked);
 
 	commit_transaction->t_state = T_FLUSH;
 	journal->j_committing_transaction = commit_transaction;
@@ -576,8 +571,6 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	stats.run.rs_logging = jiffies;
 	stats.run.rs_flushing = jbd2_time_diff(stats.run.rs_flushing,
 					       stats.run.rs_logging);
-        //wm add profile
-        printk(KERN_ALERT "rs_flusing: %lu\n", stats.run.rs_flushing);
 	stats.run.rs_blocks =
 		atomic_read(&commit_transaction->t_outstanding_credits);
 	stats.run.rs_blocks_logged = 0;
@@ -589,7 +582,6 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	descriptor = NULL;
 	bufs = 0;
 	blk_start_plug(&plug);
-        time_start = jiffies;
 	while (commit_transaction->t_buffers) {
 
                 mycount++;
@@ -968,13 +960,8 @@ start_journal_io:
             //printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
         }
         //end
-        //wm add profile
-        printk(KERN_ALERT "rs_buffers: %lu\n", jbd2_time_diff(time_start, jiffies));
 
-        time_start = jiffies;
 	err = journal_finish_inode_data_buffers(journal, commit_transaction);
-        //wm add profile
-        printk(KERN_ALERT "rs_finish_data: %lu\n", jbd2_time_diff(time_start, jiffies));
 	if (err) {
 		printk(KERN_WARNING
 			"JBD2: Detected IO errors while flushing file data "
@@ -1047,7 +1034,6 @@ start_journal_io:
 	 * See __journal_try_to_free_buffer.
 	 */
 wait_for_iobuf:
-        time_start = jiffies;
 	while (commit_transaction->t_iobuf_list != NULL) {
 		struct buffer_head *bh;
                 int log_diff = 0;
@@ -1156,8 +1142,6 @@ wait_for_iobuf:
 		__brelse(bh);		/* One for getblk */
 		/* AKPM: bforget here */
 	}
-        //wm add profile
-        printk(KERN_ALERT "rs_waitio: %lu\n", jbd2_time_diff(time_start, jiffies));
 
         //wm add debug
         i = 0;
@@ -1189,7 +1173,6 @@ wait_for_iobuf:
 	commit_transaction->t_state = T_COMMIT_JFLUSH;
 	write_unlock(&journal->j_state_lock);
 
-        time_start = jiffies;
 	if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
 				       JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)) {
 		err = journal_submit_commit_record(journal, commit_transaction,
@@ -1197,11 +1180,9 @@ wait_for_iobuf:
 		if (err)
 			__jbd2_journal_abort_hard(journal);
 	}
-        if (cbh) {
+        if (cbh)
             err = journal_wait_on_commit_record(journal, cbh);
-            //wm add profile
-            printk(KERN_ALERT "rs_wait_commit: %lu\n", jbd2_time_diff(time_start, jiffies));
-        }
+        
 	if (JBD2_HAS_INCOMPAT_FEATURE(journal,
 				      JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT) &&
 	    journal->j_flags & JBD2_BARRIER) {
@@ -1391,8 +1372,6 @@ restart_loop:
 	commit_transaction->t_start = jiffies;
 	stats.run.rs_logging = jbd2_time_diff(stats.run.rs_logging,
 					      commit_transaction->t_start);
-        //wm add profile
-        printk(KERN_ALERT "rs_logging: %lu\n", stats.run.rs_logging);
 
 	/*
 	 * File the transaction statistics
