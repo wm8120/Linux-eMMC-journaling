@@ -119,10 +119,22 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	int ret, err;
 	tid_t commit_tid;
 	bool needs_barrier = false;
+        //wm add 
+        ktime_t time_start;
+        ktime_t very_begin_time = ktime_get();
+        unsigned sync_data, send_barrier, fsync_time, wait_commit;
+        //char wm_buf[256], *wm_cptr;
+        //wm_cptr = d_path(&(file->f_path), wm_buf, sizeof(wm_buf));
+        //printk(KERN_ALERT "Filename is %s\n", wm_cptr);
+
 
 	J_ASSERT(ext4_journal_current_handle() == NULL);
 
 	trace_ext4_sync_file_enter(file, datasync);
+
+        /* wm add for fsync wait */
+        sync_data = send_barrier = fsync_time = wait_commit = 0;
+        time_start = ktime_get();
 
 	ret = filemap_write_and_wait_range(inode->i_mapping, start, end);
 	if (ret)
@@ -135,6 +147,9 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	ret = ext4_flush_unwritten_io(inode);
 	if (ret < 0)
 		goto out;
+        /* wm add for flushing file data */
+        sync_data = ktime_to_us(ktime_sub(ktime_get(), time_start));
+        /* done for flushing file data */
 
 	if (!journal) {
 		ret = __sync_inode(inode, datasync);
@@ -166,14 +181,42 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	if (journal->j_flags & JBD2_BARRIER &&
 	    !jbd2_trans_will_send_data_barrier(journal, commit_tid))
 		needs_barrier = true;
+
+        /* wm add for waiting journal commiting*/
+        time_start = ktime_get();
 	ret = jbd2_complete_transaction(journal, commit_tid);
-	if (needs_barrier) {
-		err = blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
+        //wm add
+        wait_commit = ktime_to_us(ktime_sub(ktime_get(), time_start));
+        /* done for waiting journal commiting*/
+
+        /* wm add for barrier time */
+        time_start = ktime_get();
+        if (needs_barrier) {
+            err = blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
 		if (!ret)
 			ret = err;
 	}
+        //wm add
+        //printk(KERN_ALERT "sent barrier time: %lld\n", ktime_to_us(ktime_sub(ktime_get(), time_start)));
+        send_barrier = ktime_to_us(ktime_sub(ktime_get(), time_start));
+        /* done for sending barrier */
  out:
 	mutex_unlock(&inode->i_mutex);
 	trace_ext4_sync_file_exit(inode, ret);
+
+        /* wm for whole fsync time */
+        //printk(KERN_ALERT "wait for fsync: %lld\n", ktime_to_us(ktime_sub(ktime_get(), very_begin_time)));
+        fsync_time = ktime_to_us(ktime_sub(ktime_get(), very_begin_time));
+        /* done for flushing file data */
+
+        /* record stats for fsync */
+        spin_lock(&journal->fs_stats_lock);
+        journal->fs_fsync_stats.sync_data += sync_data;
+        journal->fs_fsync_stats.barrier += send_barrier;
+        journal->fs_fsync_stats.fsync_time += fsync_time;
+        journal->fs_fsync_stats.wait_commit += wait_commit;
+        spin_unlock(&journal->fs_stats_lock);
+        /* done for recording */
+
 	return ret;
 }

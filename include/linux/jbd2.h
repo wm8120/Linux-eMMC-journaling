@@ -681,6 +681,28 @@ struct transaction_stats_s {
 	struct transaction_run_stats_s run;
 };
 
+//wm add
+struct commit_stats_s {
+    unsigned sb_block;
+    unsigned handler_exit;
+    unsigned flush_data;
+    unsigned log_prep;
+    unsigned flush_data_done;
+    unsigned log_io;
+    unsigned commit_block_io;
+    unsigned update_tail;
+    unsigned forget_list;
+    unsigned entire_logging;
+};
+
+struct fsync_stats_s {
+    unsigned sync_data;
+    unsigned barrier;
+    unsigned fsync_time;
+    unsigned wait_commit;
+};
+//done
+
 static inline unsigned long
 jbd2_time_diff(unsigned long start, unsigned long end)
 {
@@ -987,6 +1009,11 @@ struct journal_s
 	spinlock_t		j_history_lock;
 	struct proc_dir_entry	*j_proc_entry;
 	struct transaction_stats_s j_stats;
+        struct commit_stats_s   j_commit_stats;
+
+        /* wm add fsync statistics */
+        spinlock_t              fs_stats_lock;
+        struct fsync_stats_s    fs_fsync_stats;
 
 	/* Failed journal commit ID */
 	unsigned int		j_failed_commit;

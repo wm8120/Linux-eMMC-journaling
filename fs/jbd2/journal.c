@@ -43,6 +43,10 @@
 #include <linux/backing-dev.h>
 #include <linux/bitops.h>
 #include <linux/ratelimit.h>
+//wm add
+#include <linux/debugfs.h>
+#include <linux/seq_file.h>
+#include <linux/genhd.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/jbd2.h>
@@ -103,6 +107,7 @@ EXPORT_SYMBOL(jbd2_inode_cache);
 static void __journal_abort_soft (journal_t *journal, int errno);
 static int jbd2_journal_create_slab(size_t slab_size);
 static int jbd2_journal_create_bitmap_slab(size_t bitmap_size);
+static int jbd2_create_debugfs_file(journal_t *journal);
 
 /* Checksumming functions */
 int jbd2_verify_csum_type(journal_t *j, journal_superblock_t *sb)
@@ -948,6 +953,9 @@ int jbd2_complete_transaction(journal_t *journal, tid_t tid)
 	if (journal->j_running_transaction &&
 	    journal->j_running_transaction->t_tid == tid) {
 		if (journal->j_commit_request != tid) {
+                        /* wm add for starting commit */
+                        //printk(KERN_ALERT "wait running tid %d commit\n", tid);
+                        /* done starting commit */
 			/* transaction not yet started, so request it */
 			read_unlock(&journal->j_state_lock);
 			jbd2_log_start_commit(journal, tid);
@@ -959,6 +967,9 @@ int jbd2_complete_transaction(journal_t *journal, tid_t tid)
 	read_unlock(&journal->j_state_lock);
 	if (!need_to_wait)
 		return 0;
+        /* wm add for starting commit */
+        printk(KERN_ALERT "wait commiting tid %d commit done\n", tid);
+        /* done starting commit */
 wait_commit:
 	return jbd2_log_wait_commit(journal, tid);
 }
@@ -1281,6 +1292,7 @@ static void jbd2_stats_proc_exit(journal_t *journal)
 static journal_t * journal_init_common (void)
 {
 	journal_t *journal;
+        
 	int err;
 
 	journal = kzalloc(sizeof(*journal), GFP_KERNEL);
@@ -1314,6 +1326,7 @@ static journal_t * journal_init_common (void)
 	}
 
 	spin_lock_init(&journal->j_history_lock);
+	spin_lock_init(&journal->fs_stats_lock);
 
 	return journal;
 }
@@ -1862,6 +1875,13 @@ int jbd2_journal_load(journal_t *journal)
 	 * and reset them on disk. */
 	if (journal_reset(journal))
 		goto recovery_error;
+
+        //wm add
+        if (strncmp(journal->j_devname, "mmcblk1p1", 9) == 0) {
+            printk(KERN_ALERT "Create debugfs file for mmcblk1p1\n");
+            jbd2_create_debugfs_file(journal);
+        }
+        //done
 
 	journal->j_flags &= ~JBD2_ABORT;
 	journal->j_flags |= JBD2_LOADED;
@@ -2839,6 +2859,91 @@ static void __exit jbd2_remove_jbd_stats_proc_entry(void)
 #define jbd2_remove_jbd_stats_proc_entry() do {} while (0)
 
 #endif
+
+//wm add
+static int jbd2_dump_reset_show(struct seq_file* sf, void *data) 
+{
+        journal_t *journal = (journal_t*) sf->private;
+
+        spin_lock(&journal->j_history_lock);
+        printk(KERN_ALERT "\n\
+                superblock updates:\t%u\n\
+                handler exit:\t\t%u\n\
+                flush data to io:\t%u\n\
+                log_prep:\t\t%u\n\
+                flush_data_done:\t\t%u\n\
+                log_io:\t\t\t%u\n\
+                commit_block_io:\t\t%u\n\
+                update_tail:\t\t%u\n\
+                forget_list:\t\t%u\n\
+                entire_logging:\t\t%u\n", 
+                journal->j_commit_stats.sb_block        ,
+                journal->j_commit_stats.handler_exit    ,
+                journal->j_commit_stats.flush_data      ,
+                journal->j_commit_stats.log_prep        ,
+                journal->j_commit_stats.flush_data_done ,
+                journal->j_commit_stats.log_io          ,
+                journal->j_commit_stats.commit_block_io ,
+                journal->j_commit_stats.update_tail     ,
+                journal->j_commit_stats.forget_list     ,
+                journal->j_commit_stats.entire_logging);
+        //reset all variables 
+        journal->j_commit_stats.sb_block        = 0;
+        journal->j_commit_stats.handler_exit    = 0;
+        journal->j_commit_stats.flush_data      = 0;
+        journal->j_commit_stats.log_prep        = 0;
+        journal->j_commit_stats.flush_data_done = 0;
+        journal->j_commit_stats.log_io          = 0;
+        journal->j_commit_stats.commit_block_io = 0;
+        journal->j_commit_stats.update_tail     = 0;
+        journal->j_commit_stats.forget_list     = 0;
+        journal->j_commit_stats.entire_logging  = 0;
+        spin_unlock(&journal->j_history_lock);
+
+        spin_lock(&journal->fs_stats_lock);
+        printk(KERN_ALERT "\n\
+                sync data:\t\t%u\n\
+                send barrier:\t\t%u\n\
+                wait journal commit:\t%u\n\
+                fsync time:\t\t%u\n",
+                journal->fs_fsync_stats.sync_data,
+                journal->fs_fsync_stats.barrier,
+                journal->fs_fsync_stats.wait_commit,
+                journal->fs_fsync_stats.fsync_time);
+        //reset all variables 
+        journal->fs_fsync_stats.sync_data = 0;
+        journal->fs_fsync_stats.barrier = 0;
+        journal->fs_fsync_stats.fsync_time = 0;
+        journal->fs_fsync_stats.wait_commit = 0;
+        spin_unlock(&journal->fs_stats_lock);
+
+        return 0;
+}
+
+static ssize_t dump_reset_open(struct inode* inode, struct file *file)
+{
+        return single_open(file, jbd2_dump_reset_show, inode->i_private); 
+}
+
+static const struct file_operations dump_reset_stats_fops = {
+        .open       = dump_reset_open,
+        .read		= seq_read,
+        .llseek		= seq_lseek,
+        .release    = single_release,
+};
+
+static int jbd2_create_debugfs_file(journal_t *journal) 
+{
+        struct dentry* dfs = NULL;
+        dfs = debugfs_create_file("dump_reset", S_IRUGO, NULL, journal, &dump_reset_stats_fops);
+        if (IS_ERR_OR_NULL(dfs)) {
+            printk(KERN_ERR "Cannot open 'dump_rest', perhaps debugfs is disabled\n");
+            return -ENODEV;
+        }
+
+        return 0;
+}
+//done
 
 struct kmem_cache *jbd2_handle_cache, *jbd2_inode_cache;
 

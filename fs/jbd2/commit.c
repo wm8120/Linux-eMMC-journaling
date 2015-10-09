@@ -358,6 +358,12 @@ static void jbd2_block_tag_csum_set(journal_t *j, journal_block_tag_t *tag,
 
 	tag->t_checksum = cpu_to_be32(csum);
 }
+
+//wm add for getting delta time
+static s64 jbd2_diff_time(ktime_t start_time) {
+    return ktime_to_us(ktime_sub(ktime_get(), start_time));
+}
+
 /*
  * jbd2_journal_commit_transaction
  *
@@ -372,6 +378,19 @@ void jbd2_journal_commit_transaction(journal_t *journal)
         struct journal_head* myjh;
         unsigned int mycount = 0;
         int recycle_desc = 0; //used if no entire block is logged;
+
+        ktime_t time_start;
+        ktime_t very_begin_time = ktime_get();
+        unsigned sb_block           = 0;
+        unsigned handler_exit       = 0;
+        unsigned flush_data         = 0;
+        unsigned log_prep           = 0;
+        unsigned flush_data_done    = 0;
+        unsigned log_io             = 0;
+        unsigned commit_block_io    = 0;
+        unsigned j_update_tail      = 0;
+        unsigned forget_list        = 0;
+        unsigned entire_logging     = 0;
         //end
         struct transaction_stats_s stats;
 	transaction_t *commit_transaction;
@@ -408,9 +427,10 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	 * all outstanding updates to complete.
 	 */
 
-	/* Do we need to erase the effects of a prior jbd2_journal_flush? */
 	if (journal->j_flags & JBD2_FLUSHED) {
 		jbd_debug(3, "super block updated\n");
+                /* wm add for waiting for super block update */
+                time_start = ktime_get();
 		mutex_lock(&journal->j_checkpoint_mutex);
 		/*
 		 * We hold j_checkpoint_mutex so tail cannot change under us.
@@ -423,7 +443,11 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 						journal->j_tail,
 						WRITE_SYNC);
 		mutex_unlock(&journal->j_checkpoint_mutex);
-	} else {
+                //wm add
+                //printk(KERN_ALERT "super block updated: %lld\n", jbd2_diff_time(time_start));
+                sb_block = jbd2_diff_time(time_start);
+                /* done waiting for super block update */
+        } else {
 		jbd_debug(3, "superblock not updated\n");
 	}
 
@@ -436,6 +460,8 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	trace_jbd2_start_commit(journal, commit_transaction);
 	jbd_debug(1, "JBD2: starting commit of transaction %d\n",
 			commit_transaction->t_tid);
+
+	/* Do we need to erase the effects of a prior jbd2_journal_flush? */
 
 	write_lock(&journal->j_state_lock);
 	commit_transaction->t_state = T_LOCKED;
@@ -452,6 +478,8 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	stats.run.rs_running = jbd2_time_diff(commit_transaction->t_start,
 					      stats.run.rs_locked);
 
+        /* wm add for waiting for handlers exit */
+        time_start = ktime_get();
 	spin_lock(&commit_transaction->t_handle_lock);
 	while (atomic_read(&commit_transaction->t_updates)) {
 		DEFINE_WAIT(wait);
@@ -468,10 +496,16 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 		finish_wait(&journal->j_wait_updates, &wait);
 	}
 	spin_unlock(&commit_transaction->t_handle_lock);
+        //wm add
+        //printk(KERN_ALERT "wait handlers exit: %lld\n", jbd2_diff_time(time_start));
+        handler_exit = jbd2_diff_time(time_start);
+        /* done waiting for handlers exit */
 
 	J_ASSERT (atomic_read(&commit_transaction->t_outstanding_credits) <=
 			journal->j_max_transaction_buffers);
 
+        /* wm add for clean up work time*/
+        //time_start = ktime_get();
 	/*
 	 * First thing we are allowed to do is to discard any remaining
 	 * BJ_Reserved buffers.  Note, it is _not_ permissible to assume
@@ -528,6 +562,10 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	 */
 	jbd2_journal_switch_revoke_table(journal);
 
+        //wm add
+        //printk(KERN_ALERT "clean up and switch revoke table: %lld\n", jbd2_diff_time(time_start));
+        /* done for clean up revoke */
+
 	trace_jbd2_commit_flushing(journal, commit_transaction);
 	stats.run.rs_flushing = jiffies;
 	stats.run.rs_locked = jbd2_time_diff(stats.run.rs_locked,
@@ -547,9 +585,18 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	 * Now start flushing things to disk, in the order they appear
 	 * on the transaction lists.  Data blocks go first.
 	 */
+        /* wm add for start flush data */
+        time_start = ktime_get();
 	err = journal_submit_data_buffers(journal, commit_transaction);
 	if (err)
 		jbd2_journal_abort(journal, err);
+        // wm add
+        //printk(KERN_ALERT "flush data to io scheduler: %lld\n", jbd2_diff_time(time_start));
+        flush_data = jbd2_diff_time(time_start);
+        /* done for starting flush data to io */
+
+        /* wm add for waiting log preparing time */
+        time_start = ktime_get();
 
 	blk_start_plug(&plug);
 	jbd2_journal_write_revoke_records(journal, commit_transaction,
@@ -581,6 +628,7 @@ void jbd2_journal_commit_transaction(journal_t *journal)
 	err = 0;
 	descriptor = NULL;
 	bufs = 0;
+
 	blk_start_plug(&plug);
 	while (commit_transaction->t_buffers) {
 
@@ -959,8 +1007,14 @@ start_journal_io:
             J_ASSERT(commit_transaction->t_tmpsd_list == NULL);
             //printk("tid %u, %u partial block\n", commit_transaction->t_tid, mycount);
         }
+        //wm add profile
+        //printk(KERN_ALERT "log preparation: %lld\n", jbd2_diff_time(time_start));
+        log_prep = jbd2_diff_time(time_start);
+        /* done for waiting for log preparation */
         //end
 
+        /* wm add profile for flush data block */
+        time_start = ktime_get();
 	err = journal_finish_inode_data_buffers(journal, commit_transaction);
 	if (err) {
 		printk(KERN_WARNING
@@ -970,6 +1024,10 @@ start_journal_io:
 			jbd2_journal_abort(journal, err);
 		err = 0;
 	}
+        //wm add
+        //printk(KERN_ALERT "wait data flush: %lld\n", jbd2_diff_time(time_start));
+        flush_data_done = jbd2_diff_time(time_start);
+        /* done for flushing data block */
 
 	/*
 	 * Get current oldest transaction in the log before we issue flush
@@ -1033,6 +1091,8 @@ start_journal_io:
 	 * akpm: these are BJ_IO, and j_list_lock is not needed.
 	 * See __journal_try_to_free_buffer.
 	 */
+         /* wm add for waiting logging io */
+         time_start = ktime_get();
 wait_for_iobuf:
 	while (commit_transaction->t_iobuf_list != NULL) {
 		struct buffer_head *bh;
@@ -1112,6 +1172,10 @@ wait_for_iobuf:
 		JBUFFER_TRACE(jh, "brelse shadowed buffer");
 		__brelse(bh);
 	}
+        //wm add profile
+        //printk(KERN_ALERT "wait log io exclude commit block: %lld\n", jbd2_diff_time(time_start));
+        log_io = jbd2_diff_time(time_start);
+        /* done for waiting log io */
 
 	jbd_debug(3, "JBD2: commit phase 4\n");
 
@@ -1173,7 +1237,9 @@ wait_for_iobuf:
 	commit_transaction->t_state = T_COMMIT_JFLUSH;
 	write_unlock(&journal->j_state_lock);
 
-	if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
+        /* wm add for profiling commiting block submition */
+        time_start = ktime_get();
+        if (!JBD2_HAS_INCOMPAT_FEATURE(journal,
 				       JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT)) {
 		err = journal_submit_commit_record(journal, commit_transaction,
 						&cbh, crc32_sum);
@@ -1188,6 +1254,10 @@ wait_for_iobuf:
 	    journal->j_flags & JBD2_BARRIER) {
 		blkdev_issue_flush(journal->j_dev, GFP_NOFS, NULL);
 	}
+        // wm add 
+        //printk(KERN_ALERT "submit commit block %lld\n", jbd2_diff_time(time_start));
+        commit_block_io = jbd2_diff_time(time_start);
+        /* done for waiting for commit block submition */
 
 	if (err)
 		jbd2_journal_abort(journal, err);
@@ -1197,8 +1267,15 @@ wait_for_iobuf:
 	 * erase checkpointed transactions from the log by updating journal
 	 * superblock.
 	 */
-	if (update_tail)
+	if (update_tail) {
+                /* wm add for update tail time */
+                time_start = ktime_get();
 		jbd2_update_log_tail(journal, first_tid, first_block);
+                //wm add
+                //printk(KERN_ALERT "update tail time: %lld\n", jbd2_diff_time(time_start));
+                j_update_tail = jbd2_diff_time(time_start);
+                /* done for update tail time */
+        }
 
 	/* End of a transaction!  Finally, we can do checkpoint
            processing: any buffers committed as a result of this
@@ -1221,6 +1298,8 @@ restart_loop:
 	 * As there are other places (journal_unmap_buffer()) adding buffers
 	 * to this list we have to be careful and hold the j_list_lock.
 	 */
+        /* wm add for forget list update */
+        time_start = ktime_get();
 	spin_lock(&journal->j_list_lock);
 	while (commit_transaction->t_forget) {
 		transaction_t *cp_transaction;
@@ -1353,6 +1432,10 @@ restart_loop:
 	 */
 	write_lock(&journal->j_state_lock);
 	spin_lock(&journal->j_list_lock);
+        //wm add
+        //printk (KERN_ALERT "forget list update: %lld\n", jbd2_diff_time(time_start));
+        forget_list = jbd2_diff_time(time_start);
+        /* done for updating forget list*/
 	/*
 	 * Now recheck if some buffers did not get attached to the transaction
 	 * while the lock was dropped...
@@ -1372,7 +1455,6 @@ restart_loop:
 	commit_transaction->t_start = jiffies;
 	stats.run.rs_logging = jbd2_time_diff(stats.run.rs_logging,
 					      commit_transaction->t_start);
-
 	/*
 	 * File the transaction statistics
 	 */
@@ -1385,8 +1467,13 @@ restart_loop:
 	/*
 	 * Calculate overall stats
 	 */
+        /* wm add for entire logging time */
+        //printk(KERN_ALERT "entire logging time: %lld\n", jbd2_diff_time(very_begin_time));
+        entire_logging = jbd2_diff_time(very_begin_time);
+        /* done for entire logging time */
 	spin_lock(&journal->j_history_lock);
 	journal->j_stats.ts_tid++;
+        forget_list = jbd2_diff_time(time_start);
 	if (commit_transaction->t_requested)
 		journal->j_stats.ts_requested++;
 	journal->j_stats.run.rs_wait += stats.run.rs_wait;
@@ -1398,6 +1485,18 @@ restart_loop:
 	journal->j_stats.run.rs_handle_count += stats.run.rs_handle_count;
 	journal->j_stats.run.rs_blocks += stats.run.rs_blocks;
 	journal->j_stats.run.rs_blocks_logged += stats.run.rs_blocks_logged;
+        /* wm add for updating commit stats */
+        journal->j_commit_stats.sb_block        += sb_block        ;
+        journal->j_commit_stats.handler_exit    += handler_exit    ;
+        journal->j_commit_stats.flush_data      += flush_data      ;
+        journal->j_commit_stats.log_prep        += log_prep        ;
+        journal->j_commit_stats.flush_data_done += flush_data_done ;
+        journal->j_commit_stats.log_io          += log_io          ;
+        journal->j_commit_stats.commit_block_io += commit_block_io ;
+        journal->j_commit_stats.update_tail     += j_update_tail   ;
+        journal->j_commit_stats.forget_list     += forget_list     ;
+        journal->j_commit_stats.entire_logging  += entire_logging  ;
+        /* done adding commiting stats */
 	spin_unlock(&journal->j_history_lock);
 
 	commit_transaction->t_state = T_COMMIT_CALLBACK;
