@@ -693,6 +693,7 @@ struct commit_stats_s {
     unsigned update_tail;
     unsigned forget_list;
     unsigned entire_logging;
+    unsigned logging_times;
 };
 
 struct fsync_stats_s {

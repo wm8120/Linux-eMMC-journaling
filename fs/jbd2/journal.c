@@ -2876,7 +2876,8 @@ static int jbd2_dump_reset_show(struct seq_file* sf, void *data)
                 commit_block_io:\t\t%u\n\
                 update_tail:\t\t%u\n\
                 forget_list:\t\t%u\n\
-                entire_logging:\t\t%u\n", 
+                entire_logging:\t\t%u\n\
+                logging_times:\t\t%u\n", 
                 journal->j_commit_stats.sb_block        ,
                 journal->j_commit_stats.handler_exit    ,
                 journal->j_commit_stats.flush_data      ,
@@ -2886,7 +2887,8 @@ static int jbd2_dump_reset_show(struct seq_file* sf, void *data)
                 journal->j_commit_stats.commit_block_io ,
                 journal->j_commit_stats.update_tail     ,
                 journal->j_commit_stats.forget_list     ,
-                journal->j_commit_stats.entire_logging);
+                journal->j_commit_stats.entire_logging  ,
+                journal->j_commit_stats.logging_times);
         //reset all variables 
         journal->j_commit_stats.sb_block        = 0;
         journal->j_commit_stats.handler_exit    = 0;
@@ -2898,6 +2900,7 @@ static int jbd2_dump_reset_show(struct seq_file* sf, void *data)
         journal->j_commit_stats.update_tail     = 0;
         journal->j_commit_stats.forget_list     = 0;
         journal->j_commit_stats.entire_logging  = 0;
+        journal->j_commit_stats.logging_times   = 0;
         spin_unlock(&journal->j_history_lock);
 
         spin_lock(&journal->fs_stats_lock);

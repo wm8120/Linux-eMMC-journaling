@@ -158,6 +158,7 @@ static int journal_submit_commit_record(journal_t *journal,
 	    !JBD2_HAS_INCOMPAT_FEATURE(journal,
 				       JBD2_FEATURE_INCOMPAT_ASYNC_COMMIT))
 		ret = submit_bh(WRITE_SYNC | WRITE_FLUSH_FUA, bh);
+		//ret = submit_bh(WRITE_SYNC | REQ_FUA, bh);
 	else
 		ret = submit_bh(WRITE_SYNC, bh);
 
@@ -1496,6 +1497,7 @@ restart_loop:
         journal->j_commit_stats.update_tail     += j_update_tail   ;
         journal->j_commit_stats.forget_list     += forget_list     ;
         journal->j_commit_stats.entire_logging  += entire_logging  ;
+        journal->j_commit_stats.logging_times ++ ;
         /* done adding commiting stats */
 	spin_unlock(&journal->j_history_lock);
 
